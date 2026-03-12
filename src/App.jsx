@@ -83,7 +83,7 @@ const fmt = d => `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes(
 // ── Blank table factory ───────────────────────────────────────────────────────
 const blankTable = id => ({
   id, active: false, guests: 2, resName: "", resTime: "", guestType: "", room: "",
-  arrivedAt: null, menuType: "", bottleWine: null,
+  arrivedAt: null, menuType: "", bottleWines: [],
   restrictions: [], birthday: false, notes: "", seats: makeSeats(2),
 });
 
@@ -93,6 +93,7 @@ const initTables = Array.from({ length: 10 }, (_, i) => blankTable(i + 1));
 const sanitizeTable = t => ({
   ...blankTable(t.id ?? 0),
   ...t,
+  bottleWines: Array.isArray(t.bottleWines) ? t.bottleWines : (t.bottleWine ? [t.bottleWine] : []),
   seats: makeSeats(
     t.guests ?? 2,
     Array.isArray(t.seats) ? t.seats : []
@@ -935,84 +936,117 @@ function ReservationModal({ table, onSave, onClose }) {
   );
 }
 
+
+// ── Sitting time rows layout constant ─────────────────────────────────────────
+const SITTING_TIMES = ["18:00", "18:30", "19:00", "19:15"];
+
 // ── Table Card ────────────────────────────────────────────────────────────────
 function Card({ table, mode, onClick, onSeat, onUnseat, onClear, onEditRes }) {
   const hasRes = table.resName || table.resTime;
-  const menuLabel = table.menuType ? `${table.menuType} menu` : null;
   return (
     <div style={{
-      background: "#fff", border: "1px solid",
-      borderColor: table.active ? "#e0e0e0" : hasRes ? "#ebebeb" : "#f5f5f5",
-      borderRadius: 2, padding: "16px 14px", cursor: table.active ? "pointer" : "default",
-      display: "flex", flexDirection: "column", gap: 8, minHeight: 160,
-      opacity: !table.active && !hasRes ? 0.4 : 1,
+      background: "#fff",
+      border: "1px solid",
+      borderColor: table.active ? "#d0d0d0" : hasRes ? "#e4e4e4" : "#f0f0f0",
+      borderRadius: 4,
+      padding: "20px 18px 16px",
+      cursor: table.active ? "pointer" : "default",
+      display: "flex", flexDirection: "column", gap: 10,
+      minHeight: 190,
+      opacity: !table.active && !hasRes ? 0.35 : 1,
+      boxShadow: table.active ? "0 1px 6px rgba(0,0,0,0.06)" : "none",
     }} onClick={onClick}>
+
+      {/* ── Top row: table number + status badges ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <span style={{ fontFamily: FONT, fontSize: 20, fontWeight: 300, color: table.active ? "#1a1a1a" : "#666", letterSpacing: 1 }}>
+        <span style={{
+          fontFamily: FONT, fontSize: 28, fontWeight: 300, letterSpacing: 1,
+          color: table.active ? "#1a1a1a" : "#888", lineHeight: 1,
+        }}>
           {String(table.id).padStart(2, "0")}
         </span>
-        <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 3 }}>
-          {table.birthday                 && <span style={{ fontSize: 11 }}>🎂</span>}
-          {table.restrictions?.length > 0 && <span style={{ fontSize: 11 }}>⚠️</span>}
-          {table.guestType === "hotel"    && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e8e8e8", borderRadius: 2, padding: "1px 4px" }}>
-            {table.room ? `Hotel #${table.room}` : "H"}
-          </span>}
-          {menuLabel && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e8e8e8", borderRadius: 2, padding: "1px 4px" }}>{menuLabel}</span>}
-          {table.active                   && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4a9a6a", display: "inline-block" }} />}
+        <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "65%" }}>
+          {table.birthday && <span style={{ fontSize: 13 }}>🎂</span>}
+          {table.restrictions?.length > 0 && <span style={{ fontSize: 13 }}>⚠️</span>}
+          {table.guestType === "hotel" && (
+            <span style={{ fontFamily: FONT, fontSize: 9, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e0e0e0", borderRadius: 2, padding: "2px 6px", background: "#fafafa" }}>
+              {table.room ? `Hotel #${table.room}` : "Hotel"}
+            </span>
+          )}
+          {table.menuType && (
+            <span style={{ fontFamily: FONT, fontSize: 9, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e0e0e0", borderRadius: 2, padding: "2px 6px", background: "#fafafa" }}>
+              {table.menuType} menu
+            </span>
+          )}
+          {table.active && (
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4a9a6a", display: "inline-block" }} />
+          )}
         </div>
       </div>
 
+      {/* ── Reservation info ── */}
       {hasRes && (
-        <div style={{ borderTop: "1px solid #f5f5f5", paddingTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
-          {table.resName && <div style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a" }}>{table.resName}</div>}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {table.resTime && <span style={{ fontFamily: FONT, fontSize: 10, color: "#444" }}>res. {table.resTime}</span>}
-            {table.arrivedAt && <>
-              <span style={{ color: "#ddd", fontSize: 10 }}>·</span>
-              <span style={{ fontFamily: FONT, fontSize: 10, color: "#4a9a6a" }}>arr. {table.arrivedAt}</span>
-            </>}
+        <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+          {table.resName && (
+            <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 500, color: "#1a1a1a", letterSpacing: 0.3 }}>
+              {table.resName}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {table.resTime && (
+              <span style={{ fontFamily: FONT, fontSize: 11, color: "#555" }}>res. {table.resTime}</span>
+            )}
+            {table.arrivedAt && (
+              <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {table.arrivedAt}</span>
+            )}
           </div>
         </div>
       )}
 
+      {/* ── Active table info ── */}
       {table.active && (
-        <>
-          <div style={{ fontFamily: FONT, fontSize: 10, color: "#666", letterSpacing: 1 }}>{table.guests} guests</div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontFamily: FONT, fontSize: 11, color: "#777", letterSpacing: 0.5 }}>
+            {table.guests} {table.guests === 1 ? "guest" : "guests"}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
             {table.seats.map(s => (
               <div key={s.id} style={{
-                width: 7, height: 7, borderRadius: "50%",
-                background: s.pairing ? (pairingStyle[s.pairing]?.color || "#e8e8e8") : "#e8e8e8",
+                width: 9, height: 9, borderRadius: "50%",
+                background: s.pairing ? (pairingStyle[s.pairing]?.color || "#d8d8d8") : "#d8d8d8",
               }} />
             ))}
           </div>
-          {table.notes && <div style={{ fontFamily: FONT, fontSize: 10, color: "#555", fontStyle: "italic" }}>{table.notes}</div>}
-        </>
+          {table.notes && (
+            <div style={{ fontFamily: FONT, fontSize: 10, color: "#888", fontStyle: "italic", lineHeight: 1.4 }}>{table.notes}</div>
+          )}
+        </div>
       )}
 
+      {/* ── Action buttons ── */}
       <div style={{ marginTop: "auto", display: "flex", gap: 6, flexWrap: "wrap" }} onClick={e => e.stopPropagation()}>
         {!table.active && mode === "admin" && (
           <button onClick={onEditRes} style={{
-            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
-            border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444",
-          }}>{(table.resName || table.resTime) ? "edit" : "reserve"}</button>
+            fontFamily: FONT, fontSize: 10, letterSpacing: 1, padding: "5px 10px",
+            border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555",
+          }}>{hasRes ? "edit" : "reserve"}</button>
         )}
-        {!table.active && (
+        {!table.active && hasRes && (
           <button onClick={onSeat} style={{
-            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
-            border: "1px solid #cce8cc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#70b870",
+            fontFamily: FONT, fontSize: 10, letterSpacing: 1, padding: "5px 10px",
+            border: "1px solid #b8ddb8", borderRadius: 2, cursor: "pointer", background: "#f4fbf4", color: "#4a8a4a",
           }}>seat</button>
         )}
         {table.active && mode === "admin" && (
           <button onClick={onUnseat} style={{
-            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
-            border: "1px solid #d8d8d8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555",
+            fontFamily: FONT, fontSize: 10, letterSpacing: 1, padding: "5px 10px",
+            border: "1px solid #d8d8d8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#666",
           }}>unseat</button>
         )}
         {table.active && mode === "admin" && (
           <button onClick={onClear} style={{
-            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
-            border: "1px solid #ffcccc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#e07070",
+            fontFamily: FONT, fontSize: 10, letterSpacing: 1, padding: "5px 10px",
+            border: "1px solid #f0c0c0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#c06060",
           }}>clear</button>
         )}
       </div>
@@ -1244,8 +1278,22 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], beers
       {/* Table-wide fields */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
         <div>
-          <div style={fieldLabel}>🍾 Bottle</div>
-          <WineSearch wineObj={table.bottleWine} wines={wines} byGlass={false} placeholder="search bottle…" onChange={w => upd("bottleWine", w)} />
+          <div style={fieldLabel}>🍾 Bottles</div>
+          {(table.bottleWines || []).map((w, i) => (
+            <div key={i} style={{ marginBottom: 6 }}>
+              <WineSearch
+                wineObj={w} wines={wines} byGlass={false} placeholder="search bottle…"
+                onChange={val => {
+                  const next = (table.bottleWines || []).map((b, idx) => idx === i ? val : b).filter(Boolean);
+                  upd("bottleWines", next);
+                }}
+              />
+            </div>
+          ))}
+          <WineSearch
+            wineObj={null} wines={wines} byGlass={false} placeholder="add bottle…"
+            onChange={w => { if (w) upd("bottleWines", [...(table.bottleWines || []), w]); }}
+          />
         </div>
         <div>
           <div style={fieldLabel}>Menu</div>
@@ -1686,6 +1734,7 @@ function SummaryModal({ tables, dishes = [], onClose }) {
     active.forEach(t => {
       lines.push(`TABLE ${String(t.id).padStart(2,"0")}${t.resName ? " · " + t.resName : ""}${t.arrivedAt ? " [arr. " + t.arrivedAt + "]" : ""}`);
       if (t.menuType) lines.push(`  Menu: ${t.menuType}`);
+      if (t.bottleWines?.length) lines.push(`  Bottles: ${t.bottleWines.map(w => w.name).join(", ")}`);
       t.seats.forEach(s => {
         const parts = [`P${s.id}`];
         if (s.water && s.water !== "—") parts.push(`water:${s.water}`);
@@ -1725,6 +1774,9 @@ function SummaryModal({ tables, dishes = [], onClose }) {
               {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
               {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px", border: "1px solid #e0e0e0", borderRadius: 2, color: "#555", background: "#fff" }}>{t.menuType}</span>}
               {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
+              {(t.bottleWines || []).map((w, i) => (
+                <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
+              ))}
               {t.notes     && <span style={{ fontFamily: FONT, fontSize: 10, color: "#999", fontStyle: "italic", marginLeft: "auto" }}>{t.notes}</span>}
             </div>
             <div style={{ padding: "8px 12px 12px" }}>
@@ -1757,21 +1809,42 @@ function SummaryModal({ tables, dishes = [], onClose }) {
   );
 }
 
+
 // ── Archive Modal ─────────────────────────────────────────────────────────────
 function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }) {
   const [entries, setEntries]   = useState([]);
   const [loading, setLoading]   = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const pairingColor = { "Wine": "#8a6030", "Non-Alc": "#1f5f73", "Premium": "#3a3a7a", "Our Story": "#2a6a4a" };
   const pairingBg    = { "Wine": "#fdf4e8", "Non-Alc": "#e8f7fb", "Premium": "#eaeaf5", "Our Story": "#e0f5ea" };
 
   const loadEntries = () => {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
-    supabase.from("service_archive").select("*").order("created_at", { ascending: false }).limit(30)
+    supabase.from("service_archive").select("*").order("created_at", { ascending: false }).limit(60)
       .then(({ data, error }) => { setEntries(error ? [] : (data || [])); setLoading(false); });
   };
   useEffect(loadEntries, []);
+
+  const deleteEntry = async id => {
+    if (!supabase) return;
+    setDeleting(id);
+    await supabase.from("service_archive").delete().eq("id", id);
+    setEntries(e => e.filter(x => x.id !== id));
+    if (expanded === id) setExpanded(null);
+    setDeleting(null);
+  };
+
+  const deleteAll = async () => {
+    if (!supabase) return;
+    if (!window.confirm("Delete ALL archive entries? This cannot be undone.")) return;
+    setDeleting("all");
+    await supabase.from("service_archive").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    setEntries([]);
+    setExpanded(null);
+    setDeleting(null);
+  };
 
   const activeTables = tables.filter(t => t.active || t.arrivedAt || t.resName || t.resTime);
 
@@ -1784,7 +1857,7 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
       <button onClick={async () => { await onArchiveAndClear(); loadEntries(); }} style={{
         fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px",
         border: "1px solid #c8a06e", borderRadius: 2, cursor: "pointer", background: "#fdf8f0", color: "#8a6030",
-      }}>ARCHIVE &amp; CLEAR ({activeTables.length})</button>
+      }}>ARCHIVE & CLEAR ({activeTables.length})</button>
     </div>
   );
 
@@ -1800,22 +1873,34 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
         {supabase && !loading && entries.length === 0 && (
           <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>No archived services yet</div>
         )}
+        {supabase && !loading && entries.length > 0 && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={deleteAll} disabled={deleting === "all"} style={{
+              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 14px",
+              border: "1px solid #ffcccc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#e07070",
+              opacity: deleting === "all" ? 0.5 : 1,
+            }}>{deleting === "all" ? "DELETING…" : "DELETE ALL"}</button>
+          </div>
+        )}
         {entries.map(entry => {
           const isExp        = expanded === entry.id;
           const entryTables  = entry.state?.tables || [];
           const totalGuests  = entryTables.reduce((a, t) => a + (t.guests || 0), 0);
           return (
             <div key={entry.id} style={{ border: "1px solid #f0f0f0", borderRadius: 4, marginBottom: 8, overflow: "hidden" }}>
-              <div onClick={() => setExpanded(isExp ? null : entry.id)} style={{
-                padding: "14px 16px", cursor: "pointer", display: "flex",
-                alignItems: "center", justifyContent: "space-between",
-                background: isExp ? "#fafafa" : "#fff",
-              }}>
-                <div>
+              <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: isExp ? "#fafafa" : "#fff" }}>
+                <div onClick={() => setExpanded(isExp ? null : entry.id)} style={{ cursor: "pointer", flex: 1 }}>
                   <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 500, color: "#1a1a1a", marginBottom: 3 }}>{entry.label}</div>
                   <div style={{ fontFamily: FONT, fontSize: 10, color: "#999" }}>{entryTables.length} tables · {totalGuests} guests</div>
                 </div>
-                <span style={{ fontFamily: FONT, fontSize: 16, color: "#ccc", transform: isExp ? "rotate(180deg)" : "none", transition: "transform 0.18s", display: "inline-block" }}>⌄</span>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button onClick={() => deleteEntry(entry.id)} disabled={deleting === entry.id} style={{
+                    fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "4px 10px",
+                    border: "1px solid #ffcccc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#e07070",
+                    opacity: deleting === entry.id ? 0.5 : 1,
+                  }}>{deleting === entry.id ? "…" : "delete"}</button>
+                  <span onClick={() => setExpanded(isExp ? null : entry.id)} style={{ fontFamily: FONT, fontSize: 16, color: "#ccc", transform: isExp ? "rotate(180deg)" : "none", transition: "transform 0.18s", display: "inline-block", cursor: "pointer" }}>⌄</span>
+                </div>
               </div>
               {isExp && (
                 <div style={{ borderTop: "1px solid #f0f0f0" }}>
@@ -1827,6 +1912,9 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
                         {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 10, color: "#4a9a6a" }}>arr. {t.arrivedAt}</span>}
                         {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, padding: "2px 7px", border: "1px solid #e8e8e8", borderRadius: 2, color: "#555" }}>{t.menuType}</span>}
                         {t.birthday  && <span style={{ fontSize: 12 }}>🎂</span>}
+                        {(t.bottleWines || []).map((w, i) => (
+                          <span key={i} style={{ fontFamily: FONT, fontSize: 9, padding: "2px 7px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
+                        ))}
                       </div>
                       {(t.seats || []).map(s => {
                         const ws      = waterStyle(s.water);
@@ -2097,10 +2185,9 @@ export default function App() {
   const [syncStatus,   setSyncStatus]   = useState(hasSupabaseConfig ? "connecting" : "local-only");
   // Access gate: checked once at init against 12h TTL
   const [authed,       setAuthed]       = useState(() => readAccess());
-  // Hydration: if we have local data, render immediately and sync quietly in background
+  // Hydration: render immediately from localStorage, sync Supabase in background
   const [hydrated,     setHydrated]     = useState(() => {
     if (!hasSupabaseConfig) return true;
-    // If localStorage has state, render immediately — Supabase will update quietly
     try { return !!localStorage.getItem(STORAGE_KEY); } catch { return false; }
   });
 
@@ -2119,7 +2206,7 @@ export default function App() {
     lastRemoteJsonRef.current = JSON.stringify(payload);
     setTables(Array.isArray(payload.tables) ? payload.tables.map(sanitizeTable) : initTables);
     setDishes(Array.isArray(payload.dishes)    ? payload.dishes    : initDishes);
-    // wines intentionally excluded — loaded separately from the wines table
+    // wines loaded separately from wines table
     setCocktails(Array.isArray(payload.cocktails) ? payload.cocktails : initCocktails);
     setSpirits(Array.isArray(payload.spirits)  ? payload.spirits   : initSpirits);
     setBeers(Array.isArray(payload.beers)      ? payload.beers     : initBeers);
@@ -2258,7 +2345,7 @@ export default function App() {
     if (!supabase) return;
     let isMounted = true;
 
-    // Fallback: open gate after 800ms for truly cold starts (no localStorage)
+    // Fallback: open gate after 800ms for cold starts
     const gateTimeout = setTimeout(() => { if (isMounted) setHydrated(true); }, 800);
 
     const loadRemote = async () => {
@@ -2350,24 +2437,18 @@ export default function App() {
         .select("id, name, wine_name, producer, vintage, region, country, by_glass")
         .order("name", { ascending: true });
       if (!mounted || error || !data || data.length === 0) return;
-      const mapped = data.map(r => ({
-        id:       r.id,
-        name:     r.wine_name || r.name,
-        producer: r.producer || "",
-        vintage:  r.vintage  || "",
-        region:   r.region   || "",
-        country:  r.country  || "",
-        byGlass:  r.by_glass ?? false,
-      }));
-      setWines(mapped);
+      setWines(data.map(r => ({
+        id: r.id, name: r.wine_name || r.name,
+        producer: r.producer || "", vintage: r.vintage || "",
+        region: r.region || "", country: r.country || "",
+        byGlass: r.by_glass ?? false,
+      })));
     };
 
     loadWines();
-
     const wineChannel = supabase.channel("milka-wines")
       .on("postgres_changes", { event: "*", schema: "public", table: "wines" }, loadWines)
       .subscribe();
-
     return () => { mounted = false; supabase.removeChannel(wineChannel); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2439,19 +2520,101 @@ export default function App() {
       />
 
       {sel === null ? (
-        <div style={{ padding: "20px 12px", maxWidth: 960, margin: "0 auto", overflowX: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-            {tables.map(t => (
-              <Card key={t.id} table={t}
-                mode={mode}
-                onClick={() => t.active && setSel(t.id)}
-                onSeat={() => seatTable(t.id)}
-                onUnseat={() => unseatTable(t.id)}
-                onClear={() => clear(t.id)}
-                onEditRes={() => mode === "admin" && setResModal(t.id)}
-              />
-            ))}
-          </div>
+        <div style={{ padding: "28px 24px", maxWidth: 1100, margin: "0 auto", overflowX: "hidden" }}>
+          {(() => {
+            const visibleTables = tables.filter(t => mode === "admin" || t.active || t.resName || t.resTime);
+            const cardProps = t => ({
+              key: t.id, table: t, mode,
+              onClick: () => t.active && setSel(t.id),
+              onSeat: () => seatTable(t.id),
+              onUnseat: () => unseatTable(t.id),
+              onClear: () => clear(t.id),
+              onEditRes: () => mode === "admin" && setResModal(t.id),
+            });
+
+            // Group tables by sitting time
+            const rows = SITTING_TIMES.map(time => ({
+              time,
+              tables: visibleTables.filter(t => t.resTime === time || (t.active && !t.resTime && t.arrivedAt === undefined && false)),
+            }));
+
+            // Tables that are active (seated) with no resTime — walk-ins / already seated
+            const activeNoTime = visibleTables.filter(t => t.active && !t.resTime);
+            // Tables with resTime not in SITTING_TIMES
+            const otherRes = visibleTables.filter(t => t.resTime && !SITTING_TIMES.includes(t.resTime));
+
+            const hasAnyInRows = rows.some(r => r.tables.length > 0);
+            const hasExtra = activeNoTime.length > 0 || otherRes.length > 0;
+
+            if (!hasAnyInRows && !hasExtra) {
+              return (
+                <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", textAlign: "center", paddingTop: 80 }}>
+                  No reservations yet — add them in Admin
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                {rows.map(({ time, tables: rowTables }) => {
+                  if (rowTables.length === 0 && mode !== "admin") return null;
+                  return (
+                    <div key={time}>
+                      {/* Row label */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                        <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>
+                          {time}
+                        </span>
+                        <div style={{ flex: 1, height: 1, background: "#f0f0f0" }} />
+                        <span style={{ fontFamily: FONT, fontSize: 10, color: "#bbb" }}>
+                          {rowTables.length} / 4
+                        </span>
+                      </div>
+                      {/* Cards — max 4, fixed grid */}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+                        {rowTables.slice(0, 4).map(t => <Card {...cardProps(t)} />)}
+                        {/* Empty slot placeholders for admin */}
+                        {mode === "admin" && rowTables.length < 4 && Array.from({ length: 4 - rowTables.length }).map((_, i) => (
+                          <div key={`empty-${i}`} style={{
+                            border: "1px dashed #ebebeb", borderRadius: 4, minHeight: 190,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            <span style={{ fontFamily: FONT, fontSize: 9, color: "#ddd", letterSpacing: 2 }}>OPEN</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Walk-ins / active tables with no res time */}
+                {activeNoTime.length > 0 && (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                      <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>walk-in</span>
+                      <div style={{ flex: 1, height: 1, background: "#f0f0f0" }} />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14 }}>
+                      {activeNoTime.map(t => <Card {...cardProps(t)} />)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tables with non-standard res times */}
+                {otherRes.length > 0 && (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                      <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>other</span>
+                      <div style={{ flex: 1, height: 1, background: "#f0f0f0" }} />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14 }}>
+                      {otherRes.map(t => <Card {...cardProps(t)} />)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       ) : (
         <Detail
