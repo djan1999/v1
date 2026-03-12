@@ -1478,7 +1478,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── PIN codes ─────────────────────────────────────────────────────────────────
-const PINS = { admin: "3412", service: "" };
+const PINS = { admin: "3412" };
 
 // ── LoginScreen ───────────────────────────────────────────────────────────────
 function LoginScreen({ onEnter }) {
@@ -1488,7 +1488,7 @@ function LoginScreen({ onEnter }) {
 
   const MODES = [
     { id: "display", label: "Display",  sub: "Read-only view",        locked: false },
-    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: true  },
+    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: false  },
     { id: "admin",   label: "Admin",    sub: "Full access",           locked: true  },
   ];
 
