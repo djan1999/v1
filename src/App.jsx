@@ -1000,8 +1000,9 @@ function TableSeatDetail({ table, dishes, isMobile }) {
 // ── Detail ────────────────────────────────────────────────────────────────────
 function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode, onBack, upd, updSeat, setGuests, swapSeats }) {
   const isMobile = useIsMobile(860);
-  const row1 = isMobile ? "34px 68px 1fr 28px" : "38px 75px 1fr 28px";
-
+  const row1 = isMobile ? "38px 72px 1fr 28px" : "44px 82px 1fr 28px";
+  const [beverageOpen, setBeverageOpen] = useState({});
+  const isBeverageOpen = seatId => Boolean(beverageOpen[seatId]);
 
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: isMobile ? "20px 12px 28px" : "24px 16px", overflowX: "hidden" }}>
@@ -1080,6 +1081,8 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
 
       {(table.seats || []).map((seat, si) => {
         const glasses      = seat.glasses   || [];
+        const cocktailList = seat.cocktails || [];
+        const spiritList   = seat.spirits   || [];
         const seatRestrictions = (table.restrictions || []).filter(r => r.pos === seat.id);
         return (
           <div key={seat.id} style={{
@@ -1126,68 +1129,61 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                 : <div />}
             </div>
 
-            <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "86px 1fr", gap: 10, alignItems: "start" }}>
-                <div style={{ ...fieldLabel, marginBottom: 0, paddingTop: 10 }}>By Glass</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <div style={{ flex: "1 1 220px", minWidth: isMobile ? "100%" : 220 }}>
-                      <WineSearch
-                        wineObj={null}
-                        wines={wines}
-                        byGlass={true}
-                        compact
-                        placeholder="search glass…"
-                        onChange={w => { if (!w) return; updSeat(seat.id, "glasses", [...glasses, w]); }}
-                      />
+            <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 12 }}>
+              {(() => {
+                const beveragePool = [
+                  ...wines.filter(w => w.byGlass).map(w => ({ __type: "wine", id: `wine-${w.id}`, name: w.name, notes: [w.producer, w.vintage].filter(Boolean).join(" · "), raw: w })),
+                  ...cocktails.map(c => ({ __type: "cocktail", id: `cocktail-${c.id}`, name: c.name, notes: c.notes || "Cocktail", raw: c })),
+                  ...spirits.map(s => ({ __type: "spirit", id: `spirit-${s.id}`, name: s.name, notes: s.notes || "Spirit", raw: s })),
+                ];
+                const selectedBeverages = [
+                  ...glasses.map((item, idx) => ({ key: `glasses-${idx}`, field: "glasses", chipBg: "#f5f5f5", chipColor: "#333", chipBorder: "#ddd", dot: "#bbb", label: `${item?.name || ""}${item?.producer ? ` · ${item.producer}` : ""}${item?.vintage ? ` · ${item.vintage}` : ""}` })),
+                  ...cocktailList.map((item, idx) => ({ key: `cocktails-${idx}`, field: "cocktails", chipBg: "#f9f5ff", chipColor: "#7a507a", chipBorder: "#dcc9ea", dot: "#c9a8e0", label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
+                  ...spiritList.map((item, idx) => ({ key: `spirits-${idx}`, field: "spirits", chipBg: "#fffaf5", chipColor: "#a07040", chipBorder: "#e5d3bb", dot: "#d8b48c", label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
+                ];
+                return (
+                  <div style={{ border: "1px solid #ececec", borderRadius: 10, background: "#fcfcfc", padding: isMobile ? "10px" : "12px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ ...fieldLabel, marginBottom: 0, color: "#444" }}>Beverage</div>
+                      <button onClick={() => setBeverageOpen(prev => ({ ...prev, [seat.id]: !prev[seat.id] }))} style={{
+                        fontFamily: FONT, fontSize: 10, letterSpacing: 1.5, padding: "7px 12px",
+                        border: "1px solid #e0e0e0", borderRadius: 999, cursor: "pointer",
+                        background: isBeverageOpen(seat.id) ? "#1a1a1a" : "#fff", color: isBeverageOpen(seat.id) ? "#fff" : "#444", fontWeight: 600,
+                      }}>{isBeverageOpen(seat.id) ? "HIDE SEARCH" : "ADD BEVERAGE"}</button>
                     </div>
-                    <button
-                      onClick={() => updSeat(seat.id, "glasses", [...glasses, null])}
-                      style={{
-                        fontFamily: FONT, fontSize: 9, letterSpacing: 1,
-                        padding: "6px 10px", border: "1px dashed #e0e0e0",
-                        borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      + glass
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {glasses.length === 0 ? (
-                      <div style={{ fontFamily: FONT, fontSize: 11, color: "#777", padding: "8px 10px", border: "1px dashed #e2e2e2", borderRadius: 8 }}>
-                        none
+                    {isBeverageOpen(seat.id) && (
+                      <div style={{ marginTop: 10 }}>
+                        <DrinkSearch
+                          list={beveragePool}
+                          placeholder="search wine, cocktail, spirit…"
+                          accentColor="#555"
+                          onChange={item => {
+                            if (!item) return;
+                            if (item.__type === "wine") updSeat(seat.id, "glasses", [...glasses, item.raw]);
+                            if (item.__type === "cocktail") updSeat(seat.id, "cocktails", [...cocktailList, item.raw]);
+                            if (item.__type === "spirit") updSeat(seat.id, "spirits", [...spiritList, item.raw]);
+                          }}
+                        />
                       </div>
-                    ) : (
-                      glasses.map((w, gi) => (
-                        <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <WineSearch
-                              wineObj={w}
-                              wines={wines}
-                              byGlass={true}
-                              compact
-                              placeholder="search glass…"
-                              onChange={updated => {
-                                const next = glasses.map((x, idx) => idx === gi ? updated : x).filter(Boolean);
-                                updSeat(seat.id, "glasses", next);
-                              }}
-                            />
-                          </div>
-                          <button
-                            onClick={() => updSeat(seat.id, "glasses", glasses.filter((_, idx) => idx !== gi))}
-                            style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))
                     )}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                      {selectedBeverages.length === 0 ? (
+                        <div style={{ fontFamily: FONT, fontSize: 11, color: "#777", padding: "8px 10px", border: "1px dashed #e2e2e2", borderRadius: 8, background: "#fff" }}>no beverage added</div>
+                      ) : selectedBeverages.map(item => (
+                        <span key={item.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT, fontSize: 11, color: item.chipColor, background: item.chipBg, border: `1px solid ${item.chipBorder}`, borderRadius: 999, padding: "4px 9px 4px 7px", maxWidth: isMobile ? "100%" : 260 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.dot, flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                          <button onClick={() => {
+                            const fieldList = item.field === "glasses" ? glasses : item.field === "cocktails" ? cocktailList : spiritList;
+                            const index = Number(item.key.split("-")[1]);
+                            updSeat(seat.id, item.field, fieldList.filter((_, i) => i !== index));
+                          }} style={{ background: "none", border: "none", color: item.chipColor, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </div>
-
+                );
+              })()}
               {dishes.length > 0 && (
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                   {dishes.map(dish => {
@@ -1482,7 +1478,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── PIN codes ─────────────────────────────────────────────────────────────────
-const PINS = { admin: "3412" };
+const PINS = { admin: "3412", service: "2021" };
 
 // ── LoginScreen ───────────────────────────────────────────────────────────────
 function LoginScreen({ onEnter }) {
@@ -1492,7 +1488,7 @@ function LoginScreen({ onEnter }) {
 
   const MODES = [
     { id: "display", label: "Display",  sub: "Read-only view",        locked: false },
-    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: false },
+    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: true  },
     { id: "admin",   label: "Admin",    sub: "Full access",           locked: true  },
   ];
 
@@ -1822,9 +1818,9 @@ export default function App() {
       {sel === null ? (
         <div style={{ padding: "20px 12px", maxWidth: 960, margin: "0 auto" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-            {tables.map(t => (
+            {(mode === "service" ? tables.filter(t => t.active || t.resName || t.resTime) : tables).map(t => (
               <Card key={t.id} table={t} mode={mode}
-                onClick={() => t.active && setSel(t.id)}
+                onClick={() => (t.active || (mode === "service" && (t.resName || t.resTime))) && setSel(t.id)}
                 onSeat={() => seatTable(t.id)}
                 onClear={() => clear(t.id)}
                 onEditRes={() => mode === "admin" && setResModal(t.id)}
