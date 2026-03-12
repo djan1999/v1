@@ -1080,8 +1080,6 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
 
       {(table.seats || []).map((seat, si) => {
         const glasses      = seat.glasses   || [];
-        const cocktailList = seat.cocktails || [];
-        const spiritList   = seat.spirits   || [];
         const seatRestrictions = (table.restrictions || []).filter(r => r.pos === seat.id);
         return (
           <div key={seat.id} style={{
@@ -1128,49 +1126,67 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                 : <div />}
             </div>
 
-            <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 8 }}>
-              {/* ── Compact beverage rows: label | search | chips ── */}
-              {[
-                { field: "glasses",   label: "Glass",    dot: "#bbb",    chipBg: "#f5f5f5",  chipColor: "#333",    chipBorder: "#ddd",
-                  search: <WineSearch wineObj={null} wines={wines} byGlass={true} compact placeholder="by glass…"
-                    onChange={w => { if (!w) return; updSeat(seat.id, "glasses", [...glasses, w]); }} />,
-                  items: glasses, fmt: w => `${w?.name} · ${w?.vintage}` },
-                { field: "cocktails", label: "Cocktail", dot: "#c9a8e0", chipBg: "#f9f5ff",  chipColor: "#7a507a", chipBorder: "#dcc9ea",
-                  search: <DrinkSearch list={cocktails} accentColor="#7a507a" placeholder="cocktail…"
-                    onChange={d => { if (!d) return; updSeat(seat.id, "cocktails", [...cocktailList, d]); }} />,
-                  items: cocktailList, fmt: d => d?.name + (d?.notes ? ` · ${d.notes}` : "") },
-                { field: "spirits",   label: "Spirit",   dot: "#d8b48c", chipBg: "#fffaf5",  chipColor: "#a07040", chipBorder: "#e5d3bb",
-                  search: <DrinkSearch list={spirits} accentColor="#a07040" placeholder="spirit…"
-                    onChange={d => { if (!d) return; updSeat(seat.id, "spirits", [...spiritList, d]); }} />,
-                  items: spiritList, fmt: d => d?.name + (d?.notes ? ` · ${d.notes}` : "") },
-              ].map(row => (
-                <div key={row.field} style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-                  {/* Label */}
-                  <div style={{
-                    fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#777",
-                    textTransform: "uppercase", paddingTop: 10, flexShrink: 0, width: 52,
-                  }}>{row.label}</div>
-                  {/* Search box — fixed width */}
-                  <div style={{ width: isMobile ? 130 : 150, flexShrink: 0 }}>{row.search}</div>
-                  {/* Chips */}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, flex: 1, minWidth: 0, paddingTop: 4 }}>
-                    {row.items.map((item, idx) => (
-                      <span key={idx} style={{
-                        display: "inline-flex", alignItems: "center", gap: 4,
-                        fontFamily: FONT, fontSize: 11, color: row.chipColor,
-                        background: row.chipBg, border: `1px solid ${row.chipBorder}`,
-                        borderRadius: 999, padding: "3px 8px 3px 6px",
-                        whiteSpace: "nowrap", maxWidth: 180,
-                      }}>
-                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{row.fmt(item)}</span>
-                        <button onClick={() => updSeat(seat.id, row.field, row.items.filter((_, i) => i !== idx))}
-                          style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
-                      </span>
-                    ))}
+            <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "86px 1fr", gap: 10, alignItems: "start" }}>
+                <div style={{ ...fieldLabel, marginBottom: 0, paddingTop: 10 }}>By Glass</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 220px", minWidth: isMobile ? "100%" : 220 }}>
+                      <WineSearch
+                        wineObj={null}
+                        wines={wines}
+                        byGlass={true}
+                        compact
+                        placeholder="search glass…"
+                        onChange={w => { if (!w) return; updSeat(seat.id, "glasses", [...glasses, w]); }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => updSeat(seat.id, "glasses", [...glasses, null])}
+                      style={{
+                        fontFamily: FONT, fontSize: 9, letterSpacing: 1,
+                        padding: "6px 10px", border: "1px dashed #e0e0e0",
+                        borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      + glass
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {glasses.length === 0 ? (
+                      <div style={{ fontFamily: FONT, fontSize: 11, color: "#777", padding: "8px 10px", border: "1px dashed #e2e2e2", borderRadius: 8 }}>
+                        none
+                      </div>
+                    ) : (
+                      glasses.map((w, gi) => (
+                        <div key={gi} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <WineSearch
+                              wineObj={w}
+                              wines={wines}
+                              byGlass={true}
+                              compact
+                              placeholder="search glass…"
+                              onChange={updated => {
+                                const next = glasses.map((x, idx) => idx === gi ? updated : x).filter(Boolean);
+                                updSeat(seat.id, "glasses", next);
+                              }}
+                            />
+                          </div>
+                          <button
+                            onClick={() => updSeat(seat.id, "glasses", glasses.filter((_, idx) => idx !== gi))}
+                            style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
-              ))}
+              </div>
 
               {dishes.length > 0 && (
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -1466,7 +1482,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── PIN codes ─────────────────────────────────────────────────────────────────
-const PINS = { admin: "3412", service: "2021" };
+const PINS = { admin: "3412" };
 
 // ── LoginScreen ───────────────────────────────────────────────────────────────
 function LoginScreen({ onEnter }) {
@@ -1476,7 +1492,7 @@ function LoginScreen({ onEnter }) {
 
   const MODES = [
     { id: "display", label: "Display",  sub: "Read-only view",        locked: false },
-    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: true  },
+    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: false },
     { id: "admin",   label: "Admin",    sub: "Full access",           locked: true  },
   ];
 
