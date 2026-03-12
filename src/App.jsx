@@ -1567,7 +1567,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── SummaryModal ─────────────────────────────────────────────────────────────
-function SummaryModal({ tables, dishes, onClose }) {
+function SummaryModal({ tables, wines = [], cocktails = [], spirits = [], onClose }) {
   const isMobile = useIsMobile(700);
   const activeTables = tables.filter(t => t.active || t.arrivedAt);
 
@@ -1584,9 +1584,9 @@ function SummaryModal({ tables, dishes, onClose }) {
           ...(s.cocktails || []).map(c => `Cocktail: ${c.name}`),
           ...(s.spirits   || []).map(sp => `Spirit: ${sp.name}${sp.notes ? " " + sp.notes : ""}`),
         ];
-        const extras = (dishes || []).filter(d => s.extras?.[d.id]?.ordered).map(d => `${d.name}${s.extras[d.id].pairing && s.extras[d.id].pairing !== "—" ? " ("+s.extras[d.id].pairing+")" : ""}`);
-        if (beverages.length || extras.length || s.pairing) {
-          lines.push(`  P${s.id}${s.pairing ? " ["+s.pairing+"]" : ""}${beverages.length ? " | " + beverages.join(", ") : ""}${extras.length ? " | Extras: " + extras.join(", ") : ""}`);
+        const extras = [];
+        if (beverages.length || s.pairing) {
+          lines.push(`  P${s.id}${s.pairing ? " ["+s.pairing+"]" : ""}${beverages.length ? " | " + beverages.join(", ") : ""}`);
         }
       });
       if (t.bottleWine) lines.push(`  Bottle: ${t.bottleWine.name} · ${t.bottleWine.producer} · ${t.bottleWine.vintage}`);
@@ -1633,9 +1633,6 @@ function SummaryModal({ tables, dishes, onClose }) {
             const hasDrinks = (t.seats || []).some(s =>
               (s.glasses||[]).length || (s.cocktails||[]).length || (s.spirits||[]).length
             );
-            const hasExtras = (t.seats || []).some(s =>
-              (dishes||[]).some(d => s.extras?.[d.id]?.ordered)
-            );
             return (
               <div key={t.id} style={{
                 borderBottom: "1px solid #f0f0f0", paddingBottom: 20, marginBottom: 20,
@@ -1661,7 +1658,7 @@ function SummaryModal({ tables, dishes, onClose }) {
                 )}
 
                 {/* Per-seat drinks */}
-                {(!hasDrinks && !hasExtras) ? (
+                {(!hasDrinks) ? (
                   <div style={{ fontFamily: FONT, fontSize: 11, color: "#ccc", letterSpacing: 0.5 }}>no beverages recorded</div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1671,9 +1668,9 @@ function SummaryModal({ tables, dishes, onClose }) {
                         ...(s.cocktails || []).map(c => ({ type: "cocktail", dot: "#c9a8e0", color: "#7a507a", label: c.name + (c.notes ? ` · ${c.notes}` : "") })),
                         ...(s.spirits   || []).map(sp => ({ type: "spirit",  dot: "#d8b48c", color: "#a07040", label: sp.name + (sp.notes ? ` · ${sp.notes}` : "") })),
                       ];
-                      const extras = (dishes||[]).filter(d => s.extras?.[d.id]?.ordered);
+                      const extras = [];
                       const restr  = (t.restrictions||[]).filter(r => r.pos === s.id);
-                      if (!beverages.length && !extras.length && !s.pairing) return null;
+                      if (!beverages.length && !s.pairing) return null;
                       const pc = { "Wine": "#8a6030", "Non-Alc": "#1f5f73", "Premium": "#3a3a7a", "Our Story": "#2a6a4a" };
                       return (
                         <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 0", borderTop: "1px solid #f8f8f8" }}>
