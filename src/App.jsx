@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const FONT = "'Roboto Mono', monospace";
@@ -13,10 +13,10 @@ const initDishes = [
   { id: 2, name: "Cheese",    pairings: ["—", "Wine", "Non-Alc"] },
 ];
 
-// ── Cocktails & Spirits ───────────────────────────────────────────────────────
+// ── Cocktails & Spirits & Beers ───────────────────────────────────────────────
 const initCocktails = [];
-const initSpirits = [];
-const initBeers = [];
+const initSpirits   = [];
+const initBeers     = [];
 
 // ── Beverages local-storage key (separate from board state) ───────────────────
 const BEV_STORAGE_KEY = "milka-beverages-v1";
@@ -52,10 +52,8 @@ const pairingStyle = {
 const fuzzy = (q, wineList, byGlass = null) => {
   if (!q) return [];
   const lq = q.toLowerCase();
-  return (wineList || []).filter(w => {
-    const hit = (w.name || "").toLowerCase().includes(lq)
-      || (w.producer || "").toLowerCase().includes(lq)
-      || (w.vintage || "").includes(lq);
+  return wineList.filter(w => {
+    const hit = w.name.toLowerCase().includes(lq) || w.producer.toLowerCase().includes(lq) || w.vintage.includes(lq);
     return hit && (byGlass === null || w.byGlass === byGlass);
   }).slice(0, 6);
 };
@@ -63,70 +61,53 @@ const fuzzy = (q, wineList, byGlass = null) => {
 const fuzzyDrink = (q, list) => {
   if (!q) return [];
   const lq = q.toLowerCase();
-  return (list || []).filter(d =>
-    (d.name || "").toLowerCase().includes(lq) || (d.notes || "").toLowerCase().includes(lq)
+  return list.filter(d =>
+    d.name.toLowerCase().includes(lq) || (d.notes || "").toLowerCase().includes(lq)
   ).slice(0, 6);
 };
 
-// FIX: guard against undefined/null ex array, and ensure all seat fields exist
-const makeSeat = (i, ex) => ({
-  id: i + 1,
-  water:     ex?.water     ?? "—",
-  glasses:   Array.isArray(ex?.glasses)   ? ex.glasses   : [],
-  cocktails: Array.isArray(ex?.cocktails) ? ex.cocktails : [],
-  spirits:   Array.isArray(ex?.spirits)   ? ex.spirits   : [],
-  pairing:   ex?.pairing   ?? "",
-  extras:    (ex?.extras && typeof ex.extras === "object") ? ex.extras : {},
-});
-
 const makeSeats = (n, ex = []) =>
-  Array.from({ length: n }, (_, i) => makeSeat(i, ex[i]));
+  Array.from({ length: n }, (_, i) => ({
+    id: i + 1,
+    water:     ex[i]?.water     ?? "—",
+    glasses:   ex[i]?.glasses   ?? [],
+    cocktails: ex[i]?.cocktails ?? [],
+    spirits:   ex[i]?.spirits   ?? [],
+    beers:     ex[i]?.beers     ?? [],
+    pairing:   ex[i]?.pairing   ?? "",
+    extras:    ex[i]?.extras    ?? {},
+  }));
 
 const fmt = d => `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 
-const initTables = Array.from({ length: 10 }, (_, i) => ({
-  id: i + 1,
-  active: i < 4,
-  guests: [4,2,6,3,2,2,2,2,2,2][i],
-  resName:    ["Kovač","Smith","Bianchi","","","","","","",""][i],
-  resTime:    ["19:00","18:30","18:00","","","","","","",""][i],
-  guestType:  ["hotel","outside","hotel","","","","","","",""][i],
-  room:       ["23","","12","","","","","","",""][i],
-  arrivedAt:  i < 3 ? fmt(new Date(Date.now() - [12,34,5][i] * 60000)) : null,
-  menuType:   ["Long","Short","Long","","","","","","",""][i],
-  bottleWine: null,
-  restrictions: i === 1 ? [{ pos: null, note: "no gluten" }, { pos: null, note: "vegetarian" }] : [],
-  birthday: i === 2,
-  notes: i === 0 ? "VIP — slow pace" : "",
-  seats: makeSeats([4,2,6,3,2,2,2,2,2,2][i]),
-}));
+// ── Blank table factory ───────────────────────────────────────────────────────
+const blankTable = id => ({
+  id, active: false, guests: 2, resName: "", resTime: "", guestType: "", room: "",
+  arrivedAt: null, menuType: "", bottleWine: null,
+  restrictions: [], birthday: false, notes: "", seats: makeSeats(2),
+});
 
-// ── Sanitize a table loaded from storage/Supabase to fill in any missing fields
+const initTables = Array.from({ length: 10 }, (_, i) => blankTable(i + 1));
+
+// ── sanitizeTable: fill any missing fields so stale Supabase data never breaks UI ──
 const sanitizeTable = t => ({
-  id:           t.id           ?? 0,
-  active:       t.active       ?? false,
-  guests:       t.guests       ?? 2,
-  resName:      t.resName      ?? "",
-  resTime:      t.resTime      ?? "",
-  guestType:    t.guestType    ?? "",
-  room:         t.room         ?? "",
-  arrivedAt:    t.arrivedAt    ?? null,
-  menuType:     t.menuType     ?? "",
-  bottleWine:   t.bottleWine   ?? null,
+  ...blankTable(t.id ?? 0),
+  ...t,
+  seats: makeSeats(
+    t.guests ?? 2,
+    Array.isArray(t.seats) ? t.seats : []
+  ),
   restrictions: Array.isArray(t.restrictions) ? t.restrictions : [],
-  birthday:     t.birthday     ?? false,
-  notes:        t.notes        ?? "",
-  seats:        makeSeats(t.guests ?? 2, Array.isArray(t.seats) ? t.seats : []),
 });
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const baseInp = {
-  fontFamily: FONT, fontSize: MOBILE_SAFE_INPUT_SIZE,
+  fontFamily: FONT, fontSize: MOBILE_SAFE_INPUT_SIZE, // 16px prevents iOS auto-zoom
   padding: "10px 12px", border: "1px solid #e8e8e8",
   borderRadius: 2, outline: "none",
   color: "#1a1a1a", background: "#fff",
   boxSizing: "border-box", width: "100%", minWidth: 0,
-  WebkitAppearance: "none",
+  WebkitAppearance: "none", // removes iOS styling
 };
 const fieldLabel = {
   fontFamily: FONT, fontSize: 9,
@@ -134,11 +115,63 @@ const fieldLabel = {
   textTransform: "uppercase", marginBottom: 8,
 };
 const topStatChip = {
-  fontFamily: FONT, fontSize: 10, color: "#1a1a1a",
-  letterSpacing: 1, padding: "6px 10px",
-  border: "1px solid #e8e8e8", borderRadius: 999,
-  background: "#fff", whiteSpace: "nowrap",
+  fontFamily: FONT,
+  fontSize: 10,
+  color: "#1a1a1a",
+  letterSpacing: 1,
+  padding: "6px 10px",
+  border: "1px solid #e8e8e8",
+  borderRadius: 999,
+  background: "#fff",
+  whiteSpace: "nowrap",
 };
+const statusPill = (isLive, label) => ({
+  fontFamily: FONT,
+  fontSize: 9,
+  letterSpacing: 2,
+  padding: "6px 10px",
+  border: `1px solid ${isLive ? "#8fc39f" : "#d8d8d8"}`,
+  borderRadius: 999,
+  background: isLive ? "#eef8f1" : "#f6f6f6",
+  color: isLive ? "#2f7a45" : "#555",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+});
+
+const STORAGE_KEY = "milka-service-board-v7";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+const supabase = hasSupabaseConfig ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const defaultBoardState = () => ({
+  tables: initTables,
+  dishes: initDishes,
+  wines: initWines,
+  cocktails: initCocktails,
+  spirits: initSpirits,
+  beers: initBeers,
+});
+
+const readLocalBoardState = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeLocalBoardState = state => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+};
+
 const circBtnSm = {
   width: 36, height: 36, borderRadius: "50%",
   border: "1px solid #e8e8e8", background: "#fff",
@@ -147,94 +180,32 @@ const circBtnSm = {
   fontFamily: FONT, lineHeight: 1, touchAction: "manipulation",
 };
 
-// FIX: statusPill is ONLY a style-returning function — used as style={statusPill(...)}
-// The label text must be rendered separately as children, not inside this function
-const syncPillStyle = (isLive) => ({
-  fontFamily: FONT, fontSize: 9, letterSpacing: 2,
-  padding: "6px 10px",
-  border: `1px solid ${isLive ? "#8fc39f" : "#d8d8d8"}`,
-  borderRadius: 999,
-  background: isLive ? "#eef8f1" : "#f6f6f6",
-  color: isLive ? "#2f7a45" : "#555",
-  fontWeight: 600, whiteSpace: "nowrap",
-});
-
-// ── Supabase ──────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "milka-service-board-v7";
-const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
-const supabase = hasSupabaseConfig ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-
-const defaultBoardState = () => ({
-  tables: initTables,
-  dishes: initDishes,
-  wines:  initWines,
-});
-
-// FIX: sanitize everything coming out of localStorage so stale/partial data never crashes the app
-const readLocalBoardState = () => {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return {
-      tables:    Array.isArray(parsed.tables)    ? parsed.tables.map(sanitizeTable)       : initTables,
-      dishes:    Array.isArray(parsed.dishes)    ? parsed.dishes                           : initDishes,
-      wines:     Array.isArray(parsed.wines)     ? parsed.wines                            : initWines,
-    };
-  } catch {
-    return null;
-  }
-};
-
-const writeLocalBoardState = state => {
-  if (typeof window === "undefined") return;
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-};
-
-// ── useIsMobile ───────────────────────────────────────────────────────────────
 function useIsMobile(bp = 700) {
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" ? window.innerWidth < bp : false
-  );
+  const getValue = () => (typeof window !== "undefined" ? window.innerWidth < bp : false);
+  const [isMobile, setIsMobile] = useState(getValue);
+
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < bp);
+    const onResize = () => setIsMobile(getValue());
+    onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [bp]);
+
   return isMobile;
 }
 
-// ── GlobalStyle ───────────────────────────────────────────────────────────────
-function GlobalStyle() {
-  return (
-    <style>{`
-      * { box-sizing: border-box; }
-      body { margin: 0; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; color: #1a1a1a; background: #fff; overflow-x: hidden; }
-      input, textarea, select { font-size: ${MOBILE_SAFE_INPUT_SIZE}px !important; }
-      button, a, label { touch-action: manipulation; }
-      @keyframes shake {
-        0%,100%{ transform:translateX(0) }
-        20%    { transform:translateX(-8px) }
-        40%    { transform:translateX(8px) }
-        60%    { transform:translateX(-5px) }
-        80%    { transform:translateX(5px) }
-      }
-    `}</style>
-  );
-}
-
-// ── WaterPicker ───────────────────────────────────────────────────────────────
+// ── Water Picker ──────────────────────────────────────────────────────────────
 function WaterPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   useEffect(() => {
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    document.addEventListener("touchstart", h, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("touchstart", h);
+    };
   }, []);
   const ws = waterStyle(value);
   return (
@@ -267,7 +238,7 @@ function WaterPicker({ value, onChange }) {
   );
 }
 
-// ── WineSearch ────────────────────────────────────────────────────────────────
+// ── Wine Search ───────────────────────────────────────────────────────────────
 function WineSearch({ wineObj, wines = [], onChange, placeholder, byGlass = null, compact = false }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
@@ -276,8 +247,14 @@ function WineSearch({ wineObj, wines = [], onChange, placeholder, byGlass = null
   useEffect(() => {
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    document.addEventListener("touchstart", h, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("touchstart", h);
+    };
   }, []);
+  const fs = compact ? 11 : 12;
+  const inputFs = MOBILE_SAFE_INPUT_SIZE;
   const py = compact ? 5 : 7;
   return (
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
@@ -287,7 +264,7 @@ function WineSearch({ wineObj, wines = [], onChange, placeholder, byGlass = null
           border: "1px solid #d8d8d8", borderRadius: 2,
           padding: `${py}px 28px ${py}px 10px`,
           background: "#fafafa", position: "relative",
-          fontSize: compact ? 11 : 12, fontFamily: FONT, color: "#4a4a4a",
+          fontSize: fs, fontFamily: FONT, color: "#4a4a4a",
         }}>
           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {wineObj.name} · {wineObj.producer} · {wineObj.vintage}
@@ -305,7 +282,7 @@ function WineSearch({ wineObj, wines = [], onChange, placeholder, byGlass = null
           if (!e.target.value) onChange(null);
         }} onFocus={() => results.length && setOpen(true)}
           placeholder={placeholder || "search…"}
-          style={{ ...baseInp, padding: `${py}px 10px`, letterSpacing: 0.3 }} />
+          style={{ ...baseInp, fontSize: inputFs, padding: `${py}px 10px`, letterSpacing: 0.3 }} />
       )}
       {open && (
         <div style={{
@@ -331,26 +308,49 @@ function WineSearch({ wineObj, wines = [], onChange, placeholder, byGlass = null
   );
 }
 
-// ── DrinkSearch ───────────────────────────────────────────────────────────────
-function DrinkSearch({ list = [], onChange, placeholder, accentColor = "#7a507a" }) {
-  const [q, setQ]            = useState("");
+// ── Drink Search (cocktails / spirits) ────────────────────────────────────────
+function DrinkSearch({ drinkObj, list = [], onChange, placeholder, accentColor = "#7a507a" }) {
+  const [q, setQ]           = useState("");
   const [results, setResults] = useState([]);
-  const [open, setOpen]      = useState(false);
+  const [open, setOpen]     = useState(false);
   const ref = useRef();
   useEffect(() => {
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    document.addEventListener("touchstart", h, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("touchstart", h);
+    };
   }, []);
+
   return (
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
-      <input value={q} onChange={e => {
-        setQ(e.target.value);
-        const r = fuzzyDrink(e.target.value, list);
-        setResults(r); setOpen(r.length > 0);
-      }} onFocus={() => results.length && setOpen(true)}
-        placeholder={placeholder || "search…"}
-        style={{ ...baseInp, padding: "5px 10px", letterSpacing: 0.3 }} />
+      {drinkObj ? (
+        <div style={{
+          display: "flex", alignItems: "center",
+          border: `1px solid ${accentColor}44`, borderRadius: 2,
+          padding: "5px 28px 5px 10px", background: `${accentColor}08`,
+          position: "relative", fontSize: 11, fontFamily: FONT, color: "#4a4a4a",
+        }}>
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {drinkObj.name}{drinkObj.notes ? ` · ${drinkObj.notes}` : ""}
+          </span>
+          <button onClick={e => { e.stopPropagation(); onChange(null); }} style={{
+            position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+            background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0,
+          }}>×</button>
+        </div>
+      ) : (
+        <input value={q} onChange={e => {
+          setQ(e.target.value);
+          const r = fuzzyDrink(e.target.value, list);
+          setResults(r); setOpen(r.length > 0);
+          if (!e.target.value) onChange(null);
+        }} onFocus={() => results.length && setOpen(true)}
+          placeholder={placeholder || "search…"}
+          style={{ ...baseInp, fontSize: MOBILE_SAFE_INPUT_SIZE, padding: "5px 10px", letterSpacing: 0.3 }} />
+      )}
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0,
@@ -371,7 +371,50 @@ function DrinkSearch({ list = [], onChange, placeholder, accentColor = "#7a507a"
   );
 }
 
-// ── BEV_TYPES — shared type styles for beverages ─────────────────────────────
+// ── Swap Picker ───────────────────────────────────────────────────────────────
+function SwapPicker({ seatId, totalSeats, onSwap }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("touchstart", h, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("touchstart", h);
+    };
+  }, []);
+  const others = Array.from({ length: totalSeats }, (_, i) => i + 1).filter(n => n !== seatId);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)} title="Swap position" style={{
+        width: 28, height: 28, borderRadius: 2,
+        border: "1px solid #e8e8e8", background: open ? "#f5f5f5" : "#fff",
+        color: "#555", cursor: "pointer", fontSize: 13,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>⇅</button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 3px)", right: 0,
+          background: "#fff", border: "1px solid #e8e8e8", borderRadius: 2,
+          zIndex: 300, overflow: "hidden", minWidth: 80,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+        }}>
+          <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#555", padding: "7px 12px 4px", textTransform: "uppercase" }}>swap with</div>
+          {others.map(n => (
+            <div key={n} onMouseDown={() => { onSwap(n); setOpen(false); }} style={{
+              padding: "8px 14px", cursor: "pointer",
+              fontFamily: FONT, fontSize: 12, color: "#1a1a1a",
+              borderTop: "1px solid #f5f5f5",
+            }}>P{n}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Beverage type styles (shared) ─────────────────────────────────────────────
 const BEV_TYPES = {
   wine:     { label: "Glass",    color: "#7a5020", bg: "#fdf4e8", border: "#c8a060", dot: "#c8a060" },
   cocktail: { label: "Cocktail", color: "#5a3878", bg: "#f5eeff", border: "#b898d8", dot: "#b898d8" },
@@ -379,12 +422,12 @@ const BEV_TYPES = {
   beer:     { label: "Beer",     color: "#3a6a2a", bg: "#edf8e8", border: "#88bb70", dot: "#88bb70" },
 };
 
-// ── BeverageSearch — unified single-search across all drink types ─────────────
+// ── BeverageSearch — unified single-search across all drink types ──────────────
 function BeverageSearch({ wines, cocktails, spirits, beers, onAdd }) {
-  const [q, setQ]             = useState("");
+  const [q, setQ]           = useState("");
   const [results, setResults] = useState([]);
-  const [open, setOpen]       = useState(false);
-  const ref      = useRef();
+  const [open, setOpen]     = useState(false);
+  const ref = useRef();
   const inputRef = useRef();
 
   useEffect(() => {
@@ -398,21 +441,21 @@ function BeverageSearch({ wines, cocktails, spirits, beers, onAdd }) {
     if (!val.trim()) { setResults([]); setOpen(false); return; }
     const lq = val.toLowerCase();
     const r = [];
-    (wines || []).filter(w => w.byGlass || w.by_glass).forEach(w => {
-      if ((w.name||"").toLowerCase().includes(lq) || (w.producer||"").toLowerCase().includes(lq) || (w.vintage||"").includes(lq))
-        r.push({ type: "wine", item: w, label: w.name, sub: `${w.producer||""} · ${w.vintage||""}`.trim().replace(/^·|·$/, "").trim() });
+    wines.filter(w => w.byGlass).forEach(w => {
+      if (w.name.toLowerCase().includes(lq) || w.producer?.toLowerCase().includes(lq) || w.vintage?.includes(lq))
+        r.push({ type: "wine",     item: w, label: w.name, sub: `${w.producer} · ${w.vintage}` });
     });
-    (cocktails || []).forEach(c => {
-      if ((c.name||"").toLowerCase().includes(lq) || (c.notes||"").toLowerCase().includes(lq))
+    cocktails.forEach(c => {
+      if (c.name.toLowerCase().includes(lq) || (c.notes||"").toLowerCase().includes(lq))
         r.push({ type: "cocktail", item: c, label: c.name, sub: c.notes || "" });
     });
-    (spirits || []).forEach(s => {
-      if ((s.name||"").toLowerCase().includes(lq) || (s.notes||"").toLowerCase().includes(lq))
-        r.push({ type: "spirit", item: s, label: s.name, sub: s.notes || "" });
+    spirits.forEach(s => {
+      if (s.name.toLowerCase().includes(lq) || (s.notes||"").toLowerCase().includes(lq))
+        r.push({ type: "spirit",   item: s, label: s.name, sub: s.notes || "" });
     });
-    (beers || []).forEach(b => {
-      if ((b.name||"").toLowerCase().includes(lq) || (b.notes||"").toLowerCase().includes(lq))
-        r.push({ type: "beer", item: b, label: b.name, sub: b.notes || "" });
+    beers.forEach(b => {
+      if (b.name.toLowerCase().includes(lq) || (b.notes||"").toLowerCase().includes(lq))
+        r.push({ type: "beer",     item: b, label: b.name, sub: b.notes || "" });
     });
     setResults(r.slice(0, 10));
     setOpen(r.length > 0);
@@ -448,12 +491,14 @@ function BeverageSearch({ wines, cocktails, spirits, beers, onAdd }) {
             return (
               <div key={i} onMouseDown={() => handleAdd(r)} style={{
                 padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f8f8f8",
-                display: "flex", alignItems: "center", gap: 10, background: "#fff",
+                display: "flex", alignItems: "center", gap: 10,
+                background: "#fff",
               }}>
                 <span style={{
                   fontFamily: FONT, fontSize: 8, letterSpacing: 1, fontWeight: 600,
-                  padding: "2px 6px", borderRadius: 2, flexShrink: 0, textTransform: "uppercase",
+                  padding: "2px 6px", borderRadius: 2,
                   color: ts.color, background: ts.bg, border: `1px solid ${ts.border}`,
+                  flexShrink: 0, textTransform: "uppercase",
                 }}>{ts.label}</span>
                 <span style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a", flex: 1 }}>{r.label}</span>
                 {r.sub && <span style={{ fontFamily: FONT, fontSize: 11, color: "#999" }}>{r.sub}</span>}
@@ -466,46 +511,7 @@ function BeverageSearch({ wines, cocktails, spirits, beers, onAdd }) {
   );
 }
 
-// ── SwapPicker ────────────────────────────────────────────────────────────────
-function SwapPicker({ seatId, totalSeats, onSwap }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef();
-  useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
-  const others = Array.from({ length: totalSeats }, (_, i) => i + 1).filter(n => n !== seatId);
-  return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen(o => !o)} title="Swap position" style={{
-        width: 28, height: 28, borderRadius: 2,
-        border: "1px solid #e8e8e8", background: open ? "#f5f5f5" : "#fff",
-        color: "#555", cursor: "pointer", fontSize: 13,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>⇅</button>
-      {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 3px)", right: 0,
-          background: "#fff", border: "1px solid #e8e8e8", borderRadius: 2,
-          zIndex: 300, overflow: "hidden", minWidth: 80,
-          boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-        }}>
-          <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#555", padding: "7px 12px 4px", textTransform: "uppercase" }}>swap with</div>
-          {others.map(n => (
-            <div key={n} onMouseDown={() => { onSwap(n); setOpen(false); }} style={{
-              padding: "8px 14px", cursor: "pointer",
-              fontFamily: FONT, fontSize: 12, color: "#1a1a1a",
-              borderTop: "1px solid #f5f5f5",
-            }}>P{n}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── DrinkListEditor ───────────────────────────────────────────────────────────
+// ── Drink List Editor (used inside AdminPanel tabs) ───────────────────────────
 function DrinkListEditor({ list, setList, newItem, setNewItem, nextId, label }) {
   return (
     <>
@@ -520,7 +526,7 @@ function DrinkListEditor({ list, setList, newItem, setNewItem, nextId, label }) 
           <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 28px", gap: 8, alignItems: "center" }}>
             <input value={item.name} onChange={e => setList(l => l.map(x => x.id === item.id ? { ...x, name: e.target.value } : x))}
               style={{ ...baseInp, padding: "5px 8px" }} placeholder="Name" />
-            <input value={item.notes || ""} onChange={e => setList(l => l.map(x => x.id === item.id ? { ...x, notes: e.target.value } : x))}
+            <input value={item.notes} onChange={e => setList(l => l.map(x => x.id === item.id ? { ...x, notes: e.target.value } : x))}
               style={{ ...baseInp, padding: "5px 8px" }} placeholder="e.g. classic / on the rocks" />
             <button onClick={() => setList(l => l.filter(x => x.id !== item.id))} style={{
               background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0,
@@ -533,20 +539,11 @@ function DrinkListEditor({ list, setList, newItem, setNewItem, nextId, label }) 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
           <input value={newItem.name} onChange={e => setNewItem(x => ({ ...x, name: e.target.value }))}
             placeholder="Name" style={{ ...baseInp, padding: "5px 8px" }} />
-          <input value={newItem.notes || ""} onChange={e => setNewItem(x => ({ ...x, notes: e.target.value }))}
+          <input value={newItem.notes} onChange={e => setNewItem(x => ({ ...x, notes: e.target.value }))}
             placeholder="Notes (optional)" style={{ ...baseInp, padding: "5px 8px" }}
-            onKeyDown={e => {
-              if (e.key === "Enter" && newItem.name.trim()) {
-                setList(l => [...l, { ...newItem, id: nextId.current++ }]);
-                setNewItem({ name: "", notes: "" });
-              }
-            }} />
+            onKeyDown={e => { if (e.key === "Enter" && newItem.name.trim()) { setList(l => [...l, { ...newItem, id: nextId.current++ }]); setNewItem({ name: "", notes: "" }); }}} />
         </div>
-        <button onClick={() => {
-          if (!newItem.name.trim()) return;
-          setList(l => [...l, { ...newItem, id: nextId.current++ }]);
-          setNewItem({ name: "", notes: "" });
-        }} style={{
+        <button onClick={() => { if (!newItem.name.trim()) return; setList(l => [...l, { ...newItem, id: nextId.current++ }]); setNewItem({ name: "", notes: "" }); }} style={{
           fontFamily: FONT, fontSize: 10, letterSpacing: 2, padding: "8px 20px",
           border: "1px solid #1a1a1a", borderRadius: 2, cursor: "pointer", background: "#1a1a1a", color: "#fff",
         }}>+ ADD {label.toUpperCase()}</button>
@@ -555,42 +552,53 @@ function DrinkListEditor({ list, setList, newItem, setNewItem, nextId, label }) 
   );
 }
 
-// ── AdminPanel ────────────────────────────────────────────────────────────────
+// ── Admin Panel ───────────────────────────────────────────────────────────────
 function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, onUpdateWines, onSaveBeverages, onClose }) {
   const [tab, setTab] = useState("wines");
   const isMobile = useIsMobile(700);
 
-  const [localDishes, setLocalDishes] = useState(() => dishes.map(d => ({ ...d, pairings: [...d.pairings] })));
+  // ── Dishes ──
+  const [localDishes, setLocalDishes] = useState(dishes.map(d => ({ ...d, pairings: [...d.pairings] })));
   const [newDishName, setNewDishName] = useState("");
   const nextDishId = useRef(Math.max(...dishes.map(d => d.id), 0) + 1);
+  const addDish = () => { if (!newDishName.trim()) return; setLocalDishes(l => [...l, { id: nextDishId.current++, name: newDishName.trim(), pairings: ["—", "Wine", "Non-Alc"] }]); setNewDishName(""); };
+  const removeDish    = id         => setLocalDishes(l => l.filter(d => d.id !== id));
+  const updDishName   = (id, v)    => setLocalDishes(l => l.map(d => d.id === id ? { ...d, name: v } : d));
+  const addPairing    = id         => setLocalDishes(l => l.map(d => d.id === id ? { ...d, pairings: [...d.pairings, ""] } : d));
+  const updPairing    = (id, i, v) => setLocalDishes(l => l.map(d => d.id === id ? { ...d, pairings: d.pairings.map((p, idx) => idx === i ? v : p) } : d));
+  const removePairing = (id, i)    => setLocalDishes(l => l.map(d => d.id === id ? { ...d, pairings: d.pairings.filter((_, idx) => idx !== i) } : d));
 
-  const [localWines, setLocalWines] = useState(() => wines.map(w => ({ ...w })));
+  // ── Wines ──
+  const [localWines, setLocalWines] = useState(wines.map(w => ({ ...w })));
   const [newWine, setNewWine] = useState({ name: "", producer: "", vintage: "", byGlass: false });
   const nextWineId = useRef(Math.max(...wines.map(w => w.id), 0) + 1);
+  const addWine    = () => { if (!newWine.name.trim()) return; setLocalWines(l => [...l, { ...newWine, id: nextWineId.current++ }]); setNewWine({ name: "", producer: "", vintage: "", byGlass: false }); };
+  const removeWine = id       => setLocalWines(l => l.filter(w => w.id !== id));
+  const updWine    = (id,f,v) => setLocalWines(l => l.map(w => w.id === id ? { ...w, [f]: v } : w));
 
-  const [localCocktails, setLocalCocktails] = useState(() => cocktails.map(c => ({ ...c })));
+  // ── Cocktails ──
+  const [localCocktails, setLocalCocktails] = useState(cocktails.map(c => ({ ...c })));
   const [newCocktail, setNewCocktail] = useState({ name: "", notes: "" });
   const nextCocktailId = useRef(Math.max(...cocktails.map(c => c.id), 0) + 1);
+  const addCocktail    = () => { if (!newCocktail.name.trim()) return; setLocalCocktails(l => [...l, { ...newCocktail, id: nextCocktailId.current++ }]); setNewCocktail({ name: "", notes: "" }); };
+  const removeCocktail = id      => setLocalCocktails(l => l.filter(c => c.id !== id));
+  const updCocktail    = (id,f,v) => setLocalCocktails(l => l.map(c => c.id === id ? { ...c, [f]: v } : c));
 
-  const [localSpirits, setLocalSpirits] = useState(() => spirits.map(s => ({ ...s })));
+  // ── Spirits ──
+  const [localSpirits, setLocalSpirits] = useState(spirits.map(s => ({ ...s })));
   const [newSpirit, setNewSpirit] = useState({ name: "", notes: "" });
   const nextSpiritId = useRef(Math.max(...spirits.map(s => s.id), 0) + 1);
+  const addSpirit    = () => { if (!newSpirit.name.trim()) return; setLocalSpirits(l => [...l, { ...newSpirit, id: nextSpiritId.current++ }]); setNewSpirit({ name: "", notes: "" }); };
+  const removeSpirit = id      => setLocalSpirits(l => l.filter(s => s.id !== id));
+  const updSpirit    = (id,f,v) => setLocalSpirits(l => l.map(s => s.id === id ? { ...s, [f]: v } : s));
 
-  const [localBeers, setLocalBeers] = useState(() => beers.map(b => ({ ...b })));
+  // ── Beers ──
+  const [localBeers, setLocalBeers] = useState(beers.map(b => ({ ...b })));
   const [newBeer, setNewBeer] = useState({ name: "", notes: "" });
-  const nextBeerId = useRef(Math.max(...(beers.length ? beers.map(b => b.id) : [0]), 0) + 1);
-
-  const addDish = () => {
-    if (!newDishName.trim()) return;
-    setLocalDishes(l => [...l, { id: nextDishId.current++, name: newDishName.trim(), pairings: ["—", "Wine", "Non-Alc"] }]);
-    setNewDishName("");
-  };
-  const updWine = (id, f, v) => setLocalWines(l => l.map(w => w.id === id ? { ...w, [f]: v } : w));
-  const addWine = () => {
-    if (!newWine.name.trim()) return;
-    setLocalWines(l => [...l, { ...newWine, id: nextWineId.current++ }]);
-    setNewWine({ name: "", producer: "", vintage: "", byGlass: false });
-  };
+  const nextBeerId = useRef(Math.max(...beers.map(b => b.id), 0) + 1);
+  const addBeer    = () => { if (!newBeer.name.trim()) return; setLocalBeers(l => [...l, { ...newBeer, id: nextBeerId.current++ }]); setNewBeer({ name: "", notes: "" }); };
+  const removeBeer = id      => setLocalBeers(l => l.filter(b => b.id !== id));
+  const updBeer    = (id,f,v) => setLocalBeers(l => l.map(b => b.id === id ? { ...b, [f]: v } : b));
 
   const handleSave = () => {
     onUpdateDishes(localDishes);
@@ -606,7 +614,6 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
     background: tab === t ? "#1a1a1a" : "#fff",
     color: tab === t ? "#fff" : "#444",
     borderBottom: tab === t ? "none" : "1px solid #e8e8e8",
-    flexShrink: 0,
   });
 
   return (
@@ -624,16 +631,21 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
         display: "flex", flexDirection: "column",
       }} onClick={e => e.stopPropagation()}>
 
+        {/* Drag handle */}
         <div style={{ width: 36, height: 4, borderRadius: 2, background: "#e0e0e0", margin: "12px auto 0" }} />
 
+        {/* Tab bar */}
         <div style={{ display: "flex", borderBottom: "1px solid #e8e8e8", flexShrink: 0, marginTop: 8, overflowX: "auto" }}>
           {TABS.map(t => <button key={t} style={tabBtn(t)} onClick={() => setTab(t)}>{t}</button>)}
         </div>
 
+        {/* Scrollable content */}
         <div style={{ overflowY: "auto", padding: isMobile ? "20px 16px" : "24px 28px", flex: 1, overflowX: "hidden" }}>
 
+          {/* ── Wines tab ── */}
           {tab === "wines" && (
             <>
+              {/* Wine rows */}
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 70px 52px 28px", gap: 8, marginBottom: 8 }}>
                 {(isMobile ? ["Name", "Producer"] : ["Name", "Producer", "Vintage", "Glass", ""]).map((h, i) => (
                   <div key={i} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#666", textTransform: "uppercase" }}>{h}</div>
@@ -645,13 +657,13 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
                   <div key={w.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr auto" : "1fr 1fr 70px 52px 28px", gap: 8, alignItems: "center" }}>
                     <input value={w.name} onChange={e => updWine(w.id, "name", e.target.value)} style={{ ...baseInp, padding: "5px 8px" }} placeholder="Name" />
                     <input value={w.producer} onChange={e => updWine(w.id, "producer", e.target.value)} style={{ ...baseInp, padding: "5px 8px" }} placeholder="Producer" />
-                    {!isMobile && <input value={w.vintage} onChange={e => updWine(w.id, "vintage", e.target.value)} style={{ ...baseInp, padding: "5px 8px" }} placeholder="2020" />}
+{!isMobile && <input value={w.vintage} onChange={e => updWine(w.id, "vintage", e.target.value)} style={{ ...baseInp, padding: "5px 8px" }} placeholder="2020" />}
                     <button onClick={() => updWine(w.id, "byGlass", !w.byGlass)} style={{
                       fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "5px 6px", border: "1px solid",
                       borderColor: w.byGlass ? "#aaddaa" : "#e8e8e8", borderRadius: 2, cursor: "pointer",
                       background: w.byGlass ? "#f0faf0" : "#fff", color: w.byGlass ? "#4a8a4a" : "#555",
                     }}>{w.byGlass ? "YES" : "NO"}</button>
-                    <button onClick={() => setLocalWines(l => l.filter(x => x.id !== w.id))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+                    <button onClick={() => removeWine(w.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -680,11 +692,13 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
               newItem={newCocktail} setNewItem={setNewCocktail}
               nextId={nextCocktailId} label="cocktail" />
           )}
+
           {tab === "spirits" && (
             <DrinkListEditor list={localSpirits} setList={setLocalSpirits}
               newItem={newSpirit} setNewItem={setNewSpirit}
               nextId={nextSpiritId} label="spirit" />
           )}
+
           {tab === "beers" && (
             <DrinkListEditor list={localBeers} setList={setLocalBeers}
               newItem={newBeer} setNewItem={setNewBeer}
@@ -697,21 +711,21 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
                 {localDishes.map(dish => (
                   <div key={dish.id} style={{ border: "1px solid #f0f0f0", borderRadius: 2, padding: "14px 16px" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-                      <input value={dish.name} onChange={e => setLocalDishes(l => l.map(d => d.id === dish.id ? { ...d, name: e.target.value } : d))} style={{ ...baseInp, fontWeight: 500, flex: 1 }} />
-                      <button onClick={() => setLocalDishes(l => l.filter(d => d.id !== dish.id))} style={{ background: "none", border: "1px solid #ffcccc", borderRadius: 2, color: "#e07070", cursor: "pointer", fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "6px 10px" }}>REMOVE</button>
+                      <input value={dish.name} onChange={e => updDishName(dish.id, e.target.value)} style={{ ...baseInp, fontWeight: 500, flex: 1 }} />
+                      <button onClick={() => removeDish(dish.id)} style={{ background: "none", border: "1px solid #ffcccc", borderRadius: 2, color: "#e07070", cursor: "pointer", fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "6px 10px" }}>REMOVE</button>
                     </div>
                     <div style={{ ...fieldLabel, marginBottom: 8 }}>Pairing options</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {dish.pairings.map((p, idx) => (
                         <div key={idx} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <input value={p} onChange={e => setLocalDishes(l => l.map(d => d.id === dish.id ? { ...d, pairings: d.pairings.map((x, xi) => xi === idx ? e.target.value : x) } : d))}
+                          <input value={p} onChange={e => updPairing(dish.id, idx, e.target.value)}
                             style={{ fontFamily: FONT, fontSize: 11, padding: "4px 8px", border: "1px solid #e8e8e8", borderRadius: 2, width: 80, outline: "none", color: "#1a1a1a", background: "#fafafa" }} />
                           {dish.pairings.length > 1 && (
-                            <button onClick={() => setLocalDishes(l => l.map(d => d.id === dish.id ? { ...d, pairings: d.pairings.filter((_, xi) => xi !== idx) } : d))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+                            <button onClick={() => removePairing(dish.id, idx)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
                           )}
                         </div>
                       ))}
-                      <button onClick={() => setLocalDishes(l => l.map(d => d.id === dish.id ? { ...d, pairings: [...d.pairings, ""] } : d))} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "4px 9px", border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444" }}>+ option</button>
+                      <button onClick={() => addPairing(dish.id)} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "4px 9px", border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444" }}>+ option</button>
                     </div>
                   </div>
                 ))}
@@ -727,6 +741,7 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
           )}
         </div>
 
+        {/* Footer */}
         <div style={{ display: "flex", gap: 10, padding: "14px 28px", borderTop: "1px solid #f0f0f0", flexShrink: 0 }}>
           <button onClick={onClose} style={{ flex: 1, fontFamily: FONT, fontSize: 10, letterSpacing: 2, padding: "10px", border: "1px solid #e8e8e8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444" }}>CANCEL</button>
           <button onClick={handleSave} style={{ flex: 2, fontFamily: FONT, fontSize: 10, letterSpacing: 2, padding: "10px", border: "1px solid #1a1a1a", borderRadius: 2, cursor: "pointer", background: "#1a1a1a", color: "#fff" }}>SAVE</button>
@@ -735,8 +750,7 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
     </div>
   );
 }
-
-// ── ReservationModal ──────────────────────────────────────────────────────────
+// ── Reservation Modal ─────────────────────────────────────────────────────────
 function ReservationModal({ table, onSave, onClose }) {
   const isMobile = useIsMobile(700);
   const [name, setName]           = useState(table.resName || "");
@@ -746,16 +760,15 @@ function ReservationModal({ table, onSave, onClose }) {
   const [guestType, setGuestType] = useState(table.guestType || "");
   const [room, setRoom]           = useState(table.room || "");
   const [birthday, setBirthday]   = useState(table.birthday || false);
-  const [restrictions, setRestrictions] = useState(
-    Array.isArray(table.restrictions) ? table.restrictions : []
-  );
-  const [notes, setNotes] = useState(table.notes || "");
+  const [restrictions, setRestrictions] = useState(table.restrictions || []);
+  const [notes, setNotes]         = useState(table.notes || "");
 
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(255,255,255,0.92)",
       backdropFilter: "blur(4px)", zIndex: 500,
-      display: "flex", alignItems: "flex-end", justifyContent: "center",
+      display: "flex", alignItems: "flex-end",
+      justifyContent: "center",
     }} onClick={onClose}>
       <div style={{
         background: "#fff", borderTop: "1px solid #e8e8e8",
@@ -766,7 +779,9 @@ function ReservationModal({ table, onSave, onClose }) {
         boxShadow: "0 -4px 40px rgba(0,0,0,0.10)",
       }} onClick={e => e.stopPropagation()}>
 
+        {/* Drag handle */}
         <div style={{ width: 36, height: 4, borderRadius: 2, background: "#e0e0e0", margin: "0 auto 20px" }} />
+
         <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#666", marginBottom: 20 }}>
           TABLE {String(table.id).padStart(2,"0")} · RESERVATION
         </div>
@@ -793,22 +808,21 @@ function ReservationModal({ table, onSave, onClose }) {
               ))}
             </div>
           </div>
-
           <div>
             <div style={fieldLabel}>Menu</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {["Long", "Short"].map(opt => (
-                <button key={opt} onClick={() => setMenuType(m => m === opt ? "" : opt)} style={{
-                  fontFamily: FONT, fontSize: 11, letterSpacing: 1,
-                  padding: "12px 0", flex: 1, border: "1px solid",
-                  borderColor: menuType === opt ? "#1a1a1a" : "#e8e8e8",
-                  borderRadius: 2, cursor: "pointer",
-                  background: menuType === opt ? "#1a1a1a" : "#fff",
-                  color: menuType === opt ? "#fff" : "#444",
-                  transition: "all 0.12s", textTransform: "uppercase",
-                }}>{opt}</button>
-              ))}
-            </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["Long", "Short"].map(opt => (
+                  <button key={opt} onClick={() => setMenuType(m => m === opt ? "" : opt)} style={{
+                    fontFamily: FONT, fontSize: 10, letterSpacing: 2,
+                    padding: "10px 24px", border: "1px solid",
+                    borderColor: menuType === opt ? "#1a1a1a" : "#e8e8e8",
+                    borderRadius: 2, cursor: "pointer",
+                    background: menuType === opt ? "#1a1a1a" : "#fff",
+                    color: menuType === opt ? "#fff" : "#888",
+                    textTransform: "uppercase",
+                  }}>{opt}</button>
+                ))}
+              </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "120px 1fr", gap: 16, alignItems: "flex-start" }}>
@@ -820,7 +834,7 @@ function ReservationModal({ table, onSave, onClose }) {
                 <button onClick={() => setGuests(g => Math.min(14, g+1))} style={circBtnSm}>+</button>
               </div>
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={fieldLabel}>Guest Type</div>
               <div style={{ display: "flex", gap: 8 }}>
                 {["hotel","outside"].map(type => (
@@ -921,8 +935,8 @@ function ReservationModal({ table, onSave, onClose }) {
   );
 }
 
-// ── Card ──────────────────────────────────────────────────────────────────────
-function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
+// ── Table Card ────────────────────────────────────────────────────────────────
+function Card({ table, mode, onClick, onSeat, onUnseat, onClear, onEditRes }) {
   const hasRes = table.resName || table.resTime;
   const menuLabel = table.menuType ? `${table.menuType} menu` : null;
   return (
@@ -937,16 +951,14 @@ function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
         <span style={{ fontFamily: FONT, fontSize: 20, fontWeight: 300, color: table.active ? "#1a1a1a" : "#666", letterSpacing: 1 }}>
           {String(table.id).padStart(2, "0")}
         </span>
-        <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 3, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {table.birthday && <span style={{ fontSize: 11 }}>🎂</span>}
-          {(table.restrictions || []).some(r => r.note) && <span style={{ fontSize: 11 }}>⚠️</span>}
-          {table.guestType === "hotel" && (
-            <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e8e8e8", borderRadius: 2, padding: "1px 4px" }}>
-              {table.room ? `Hotel #${table.room}` : "H"}
-            </span>
-          )}
+        <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 3 }}>
+          {table.birthday                 && <span style={{ fontSize: 11 }}>🎂</span>}
+          {table.restrictions?.length > 0 && <span style={{ fontSize: 11 }}>⚠️</span>}
+          {table.guestType === "hotel"    && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e8e8e8", borderRadius: 2, padding: "1px 4px" }}>
+            {table.room ? `Hotel #${table.room}` : "H"}
+          </span>}
           {menuLabel && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", letterSpacing: 1, border: "1px solid #e8e8e8", borderRadius: 2, padding: "1px 4px" }}>{menuLabel}</span>}
-          {table.active && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4a9a6a", display: "inline-block" }} />}
+          {table.active                   && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4a9a6a", display: "inline-block" }} />}
         </div>
       </div>
 
@@ -967,7 +979,7 @@ function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
         <>
           <div style={{ fontFamily: FONT, fontSize: 10, color: "#666", letterSpacing: 1 }}>{table.guests} guests</div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {(table.seats || []).map(s => (
+            {table.seats.map(s => (
               <div key={s.id} style={{
                 width: 7, height: 7, borderRadius: "50%",
                 background: s.pairing ? (pairingStyle[s.pairing]?.color || "#e8e8e8") : "#e8e8e8",
@@ -983,15 +995,21 @@ function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
           <button onClick={onEditRes} style={{
             fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
             border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444",
-          }}>{hasRes ? "edit" : "reserve"}</button>
+          }}>{(table.resName || table.resTime) ? "edit" : "reserve"}</button>
         )}
-        {!table.active && (mode === "admin" || mode === "service") && (
+        {!table.active && (
           <button onClick={onSeat} style={{
             fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
             border: "1px solid #cce8cc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#70b870",
           }}>seat</button>
         )}
-        {table.active && (
+        {table.active && mode === "admin" && (
+          <button onClick={onUnseat} style={{
+            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
+            border: "1px solid #d8d8d8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555",
+          }}>unseat</button>
+        )}
+        {table.active && mode === "admin" && (
           <button onClick={onClear} style={{
             fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
             border: "1px solid #ffcccc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#e07070",
@@ -1002,99 +1020,10 @@ function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
   );
 }
 
-// ── TableSeatDetail — extracted so it's NOT defined inside DisplayBoard ────────
-function TableSeatDetail({ table, dishes, isMobile }) {
-  const pairingColors = {
-    "Non-Alc":  { color: "#1f5f73", bg: "#e8f7fb", border: "#7fc6db" },
-    "Wine":      { color: "#7a5020", bg: "#f5ead8", border: "#c8a060" },
-    "Premium":   { color: "#3a3a7a", bg: "#eaeaf5", border: "#8888bb" },
-    "Our Story": { color: "#2a6a4a", bg: "#e0f5ea", border: "#5aaa7a" },
-  };
-
-  return (
-    <>
-      {table.notes && (
-        <div style={{
-          fontFamily: FONT, fontSize: 12, color: "#555", fontStyle: "italic",
-          padding: "10px 14px", background: "#f8f8f8", border: "1px solid #e8e8e8",
-          borderRadius: 2, marginBottom: 20,
-        }}>{table.notes}</div>
-      )}
-
-      {(table.restrictions || []).filter(r => !r.pos && r.note).length > 0 && (
-        <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef0f0", border: "1px solid #e09090", borderRadius: 2 }}>
-          <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 3, color: "#b04040", marginBottom: 6, textTransform: "uppercase" }}>
-            ⚠ Unassigned restrictions
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {table.restrictions.filter(r => !r.pos && r.note).map((r, i) => (
-              <span key={i} style={{ fontFamily: FONT, fontSize: 11, color: "#b04040", fontWeight: 500 }}>{r.note}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-        {(table.seats || []).map(seat => {
-          const seatRestrictions = (table.restrictions || []).filter(r => r.pos === seat.id);
-          const seatExtras = (dishes || []).filter(d => seat.extras?.[d.id]?.ordered);
-          const ws = waterStyle(seat.water);
-          const pc = pairingColors[seat.pairing] || { color: "#555", bg: "#f5f5f5", border: "#dedede" };
-          const hasInfo = seatRestrictions.length > 0 || seatExtras.length > 0;
-
-          return (
-            <div key={seat.id} style={{ border: "1px solid #ececec", borderRadius: 10, padding: "12px", background: "#fff" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
-                <div style={{
-                  width: 30, height: 30, borderRadius: "50%",
-                  border: `1px solid ${seatRestrictions.length ? "#e08080" : "#d0d0d0"}`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontFamily: FONT, fontSize: 10, fontWeight: 600,
-                  color: seatRestrictions.length ? "#b04040" : "#444",
-                }}>P{seat.id}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <span style={{
-                    fontFamily: FONT, fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                    padding: "4px 10px", borderRadius: 999,
-                    background: seat.water === "—" ? "#f5f5f5" : (ws.bg || "#f0f0f0"),
-                    color: seat.water === "—" ? "#666" : "#1a1a1a", border: "1px solid #e0e0e0",
-                  }}>{seat.water}</span>
-                  {seat.pairing && (
-                    <span style={{
-                      fontFamily: FONT, fontSize: 11, fontWeight: 600, letterSpacing: 0.4,
-                      padding: "4px 10px", borderRadius: 999,
-                      background: pc.bg, border: `1px solid ${pc.border}`, color: pc.color,
-                    }}>{seat.pairing}</span>
-                  )}
-                </div>
-              </div>
-              {hasInfo ? (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {seatRestrictions.map((r, i) => (
-                    <span key={i} style={{ fontFamily: FONT, fontSize: 11, fontWeight: 500, letterSpacing: 0.3, padding: "4px 9px", borderRadius: 999, background: "#fef0f0", border: "1px solid #e09090", color: "#b04040" }}>⚠ {r.note}</span>
-                  ))}
-                  {seatExtras.map(d => {
-                    const ex = seat.extras[d.id];
-                    return <span key={d.id} style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 0.3, padding: "4px 9px", borderRadius: 999, background: "#e8f5e8", border: "1px solid #88cc88", color: "#2a6a2a" }}>{d.name}{ex.pairing && ex.pairing !== "—" ? ` · ${ex.pairing}` : ""}</span>;
-                  })}
-                </div>
-              ) : (
-                <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb" }}>No extra notes</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-// ── Detail ────────────────────────────────────────────────────────────────────
-function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode, onBack, upd, updSeat, setGuests, swapSeats }) {
+// ── Detail View ───────────────────────────────────────────────────────────────
+function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], beers = [], mode, onBack, upd, updSeat, setGuests, swapSeats }) {
   const isMobile = useIsMobile(860);
-  const row1 = isMobile ? "38px 72px 1fr 28px" : "44px 82px 1fr 28px";
-  const [beverageOpen, setBeverageOpen] = useState({});
-  const isBeverageOpen = seatId => Boolean(beverageOpen[seatId]);
+  const row1 = isMobile ? "34px 68px 1fr 28px" : "38px 75px 1fr 28px";
 
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: isMobile ? "20px 12px 28px" : "24px 16px", overflowX: "hidden" }}>
@@ -1103,6 +1032,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
         fontFamily: FONT, fontSize: 11, color: "#666", letterSpacing: 1, padding: 0, marginBottom: 28, display: "block",
       }}>← all tables</button>
 
+      {/* Table number + guest count */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 12, gap: 16, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#555", marginBottom: 6 }}>TABLE</div>
@@ -1126,6 +1056,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
         )}
       </div>
 
+      {/* Reservation strip */}
       {(table.resName || table.resTime || table.arrivedAt || table.menuType) && (
         <div style={{
           display: "grid", gap: 14, alignItems: "start",
@@ -1164,6 +1095,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
         </div>
       )}
 
+      {/* Column header row 1 */}
       <div style={{ display: "grid", gridTemplateColumns: row1, gap: 10, alignItems: "center", marginBottom: 4 }}>
         {["", "Water", "Pairing", ""].map((h, i) => (
           <div key={i} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#555", textTransform: "uppercase" }}>{h}</div>
@@ -1171,8 +1103,9 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
       </div>
       <div style={{ borderTop: "1px solid #f0f0f0", marginBottom: 2 }} />
 
-      {(table.seats || []).map((seat, si) => {
-        const glasses      = seat.glasses   || [];
+      {/* Seat rows */}
+      {table.seats.map((seat, si) => {
+        const glasses   = seat.glasses   || [];
         const cocktailList = seat.cocktails || [];
         const spiritList   = seat.spirits   || [];
         const seatRestrictions = (table.restrictions || []).filter(r => r.pos === seat.id);
@@ -1181,23 +1114,26 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
             borderBottom: si < table.seats.length - 1 ? "1px solid #f5f5f5" : "none",
             padding: "10px 0",
           }}>
+            {/* ── Line 1: P · [restrictions] · Water · Pairing · Swap ── */}
             <div style={{ display: "grid", gridTemplateColumns: row1, gap: 10, alignItems: "start", marginBottom: 8 }}>
+              {/* P bubble */}
               <div style={{
-                width: 30, height: 30, borderRadius: "50%",
-                border: `1px solid ${seatRestrictions.length ? "#f0c0c0" : "#ebebeb"}`,
+                width: 30, height: 30, borderRadius: "50%", border: "1px solid #ebebeb",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontFamily: FONT, fontSize: 9, color: seatRestrictions.length ? "#c07070" : "#444",
-                letterSpacing: 0.5, flexShrink: 0, marginTop: 2,
+                fontFamily: FONT, fontSize: 9, color: "#444", letterSpacing: 0.5, flexShrink: 0,
+                marginTop: 2,
               }}>P{seat.id}</div>
 
+              {/* Water */}
               <WaterPicker value={seat.water} onChange={v => updSeat(seat.id, "water", v)} />
 
+              {/* Pairing */}
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {PAIRINGS.map(p => {
                   const ps = pairingStyle[p];
                   const on = seat.pairing === p;
                   return (
-                    <button key={p} onClick={() => updSeat(seat.id, "pairing", on ? "" : p)} style={{
+                    <button key={p} onClick={() => updSeat(seat.id, "pairing", p)} style={{
                       fontFamily: FONT, fontSize: 9, letterSpacing: 0.5,
                       padding: "5px 8px", border: "1px solid",
                       borderColor: on ? ps.border : "#ebebeb", borderRadius: 2, cursor: "pointer",
@@ -1206,6 +1142,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                     }}>{p}</button>
                   );
                 })}
+                {/* Restriction tags inline */}
                 {seatRestrictions.map((r, i) => (
                   <span key={i} style={{
                     fontFamily: FONT, fontSize: 9, letterSpacing: 0.5,
@@ -1216,66 +1153,63 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                 ))}
               </div>
 
+              {/* Swap */}
               {table.seats.length > 1
                 ? <SwapPicker seatId={seat.id} totalSeats={table.seats.length} onSwap={t => swapSeats(seat.id, t)} />
                 : <div />}
             </div>
-
+            {/* ── Beverages + Extras ── */}
             <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 12 }}>
-              {(() => {
-                const selectedBeverages = [
-                  ...glasses.map((item, idx)     => ({ key: `glasses-${idx}`,   field: "glasses",   ts: BEV_TYPES.wine,     label: `${item?.name || ""}${item?.producer ? ` · ${item.producer}` : ""}${item?.vintage ? ` · ${item.vintage}` : ""}` })),
-                  ...cocktailList.map((item, idx) => ({ key: `cocktails-${idx}`, field: "cocktails", ts: BEV_TYPES.cocktail, label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
-                  ...spiritList.map((item, idx)   => ({ key: `spirits-${idx}`,   field: "spirits",   ts: BEV_TYPES.spirit,   label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
-                  ...(seat.beers || []).map((item, idx) => ({ key: `beers-${idx}`, field: "beers",   ts: BEV_TYPES.beer,     label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
-                ];
-                return (
-                  <div style={{ border: "1px solid #ececec", borderRadius: 10, background: "#fcfcfc", padding: isMobile ? "10px" : "12px" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ ...fieldLabel, marginBottom: 0, color: "#444" }}>Beverage</div>
-                      <button onClick={() => setBeverageOpen(prev => ({ ...prev, [seat.id]: !prev[seat.id] }))} style={{
-                        fontFamily: FONT, fontSize: 10, letterSpacing: 1.5, padding: "7px 12px",
-                        border: "1px solid #e0e0e0", borderRadius: 999, cursor: "pointer",
-                        background: isBeverageOpen(seat.id) ? "#1a1a1a" : "#fff", color: isBeverageOpen(seat.id) ? "#fff" : "#444", fontWeight: 600,
-                      }}>{isBeverageOpen(seat.id) ? "HIDE SEARCH" : "ADD BEVERAGE"}</button>
-                    </div>
-                    {isBeverageOpen(seat.id) && (
-                      <div style={{ marginTop: 10 }}>
-                        <BeverageSearch
-                          wines={wines} cocktails={cocktails} spirits={spirits} beers={beers}
-                          onAdd={entry => {
-                            if (entry.type === "wine")     updSeat(seat.id, "glasses",   [...glasses,      entry.item]);
-                            if (entry.type === "cocktail") updSeat(seat.id, "cocktails", [...cocktailList, entry.item]);
-                            if (entry.type === "spirit")   updSeat(seat.id, "spirits",   [...spiritList,   entry.item]);
-                            if (entry.type === "beer")     updSeat(seat.id, "beers",     [...(seat.beers || []), entry.item]);
-                          }}
-                        />
-                      </div>
-                    )}
+              {/* Unified beverage search */}
+              <div style={{ background: "#fcfcfc", border: "1px solid #ececec", borderRadius: 8, padding: isMobile ? "10px" : "12px" }}>
+                <div style={{ ...fieldLabel, marginBottom: 8, color: "#444" }}>Beverages</div>
+                <BeverageSearch
+                  wines={wines} cocktails={cocktails} spirits={spirits} beers={beers}
+                  onAdd={({ type, item }) => {
+                    if (type === "wine")     updSeat(seat.id, "glasses",   [...(seat.glasses   || []), item]);
+                    if (type === "cocktail") updSeat(seat.id, "cocktails", [...(seat.cocktails || []), item]);
+                    if (type === "spirit")   updSeat(seat.id, "spirits",   [...(seat.spirits   || []), item]);
+                    if (type === "beer")     updSeat(seat.id, "beers",     [...(seat.beers     || []), item]);
+                  }}
+                />
+                {/* Added beverages as chips */}
+                {(() => {
+                  const allBevs = [
+                    ...(seat.glasses   || []).map((x, i) => ({ key: `g${i}`,  type: "wine",     label: x?.name, sub: x?.producer, onRemove: () => updSeat(seat.id, "glasses",   (seat.glasses||[]).filter((_,idx)=>idx!==i)) })),
+                    ...(seat.cocktails || []).map((x, i) => ({ key: `c${i}`,  type: "cocktail", label: x?.name, sub: x?.notes,    onRemove: () => updSeat(seat.id, "cocktails", (seat.cocktails||[]).filter((_,idx)=>idx!==i)) })),
+                    ...(seat.spirits   || []).map((x, i) => ({ key: `s${i}`,  type: "spirit",   label: x?.name, sub: x?.notes,    onRemove: () => updSeat(seat.id, "spirits",   (seat.spirits||[]).filter((_,idx)=>idx!==i)) })),
+                    ...(seat.beers     || []).map((x, i) => ({ key: `b${i}`,  type: "beer",     label: x?.name, sub: x?.notes,    onRemove: () => updSeat(seat.id, "beers",     (seat.beers||[]).filter((_,idx)=>idx!==i)) })),
+                  ];
+                  if (allBevs.length === 0) return null;
+                  return (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                      {selectedBeverages.length === 0 ? (
-                        <div style={{ fontFamily: FONT, fontSize: 11, color: "#777", padding: "8px 10px", border: "1px dashed #e2e2e2", borderRadius: 8, background: "#fff" }}>no beverage added</div>
-                      ) : selectedBeverages.map(item => (
-                        <span key={item.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT, fontSize: 11, color: item.ts.color, background: item.ts.bg, border: `1px solid ${item.ts.border}`, borderRadius: 999, padding: "4px 9px 4px 7px", maxWidth: isMobile ? "100%" : 260 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.ts.dot, flexShrink: 0 }} />
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
-                          <button onClick={() => {
-                            const idx = Number(item.key.split("-")[1]);
-                            const fieldMap = { glasses: glasses, cocktails: cocktailList, spirits: spiritList, beers: seat.beers || [] };
-                            updSeat(seat.id, item.field, fieldMap[item.field].filter((_, i) => i !== idx));
-                          }} style={{ background: "none", border: "none", color: item.ts.color, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
-                        </span>
-                      ))}
+                      {allBevs.map(bev => {
+                        const ts = BEV_TYPES[bev.type];
+                        return (
+                          <div key={bev.key} style={{
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                            padding: "4px 8px 4px 10px", borderRadius: 999,
+                            background: ts.bg, border: `1px solid ${ts.border}`,
+                          }}>
+                            <span style={{ fontFamily: FONT, fontSize: 11, color: ts.color, fontWeight: 500, whiteSpace: "nowrap" }}>
+                              {bev.label}{bev.sub ? ` · ${bev.sub}` : ""}
+                            </span>
+                            <button onClick={bev.onRemove} style={{ background: "none", border: "none", color: ts.color, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 0 0 2px", opacity: 0.7 }}>×</button>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
+              </div>
+
+              {/* Extra dishes */}
               {dishes.length > 0 && (
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {dishes.map(dish => {
                     const extra = seat.extras?.[dish.id] || { ordered: false, pairing: dish.pairings[0] };
                     return (
-                      <div key={dish.id} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 92 }}>
+                      <div key={dish.id} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 88 }}>
                         <div style={{ ...fieldLabel, marginBottom: 4 }}>{dish.name}</div>
                         <button onClick={() => updSeat(seat.id, "extras", {
                           ...seat.extras, [dish.id]: { ...extra, ordered: !extra.ordered }
@@ -1307,6 +1241,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
 
       <div style={{ borderTop: "1px solid #ebebeb", margin: "28px 0" }} />
 
+      {/* Table-wide fields */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
         <div>
           <div style={fieldLabel}>🍾 Bottle</div>
@@ -1317,12 +1252,12 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
           <div style={{ display: "flex", gap: 8 }}>
             {["Long", "Short"].map(opt => (
               <button key={opt} onClick={() => upd("menuType", table.menuType === opt ? "" : opt)} style={{
-                fontFamily: FONT, fontSize: 11, letterSpacing: 1,
-                padding: "12px 0", flex: 1, border: "1px solid",
+                fontFamily: FONT, fontSize: 10, letterSpacing: 2,
+                padding: "9px 22px", border: "1px solid",
                 borderColor: table.menuType === opt ? "#1a1a1a" : "#e8e8e8",
                 borderRadius: 2, cursor: "pointer",
                 background: table.menuType === opt ? "#1a1a1a" : "#fff",
-                color: table.menuType === opt ? "#fff" : "#444",
+                color: table.menuType === opt ? "#fff" : "#888",
                 textTransform: "uppercase",
               }}>{opt}</button>
             ))}
@@ -1330,7 +1265,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
         </div>
         <div>
           <div style={fieldLabel}>⚠️ Restrictions</div>
-          {(table.restrictions || []).length > 0 ? (
+          {table.restrictions?.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {table.restrictions.map((r, i) => (
                 <div key={i} style={{
@@ -1368,7 +1303,7 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
         </div>
         <div>
           <div style={fieldLabel}>📝 Notes</div>
-          <textarea value={table.notes || ""} onChange={e => upd("notes", e.target.value)}
+          <textarea value={table.notes} onChange={e => upd("notes", e.target.value)}
             placeholder="VIP, pace, special requests…"
             style={{ ...baseInp, minHeight: 68, resize: "vertical", lineHeight: 1.5 }} />
         </div>
@@ -1377,9 +1312,101 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
   );
 }
 
-// ── DisplayBoard ──────────────────────────────────────────────────────────────
+
+// ── Table Seat Detail (read-only, used in DisplayBoard) ───────────────────────
+function TableSeatDetail({ table, dishes, isMobile }) {
+  const pairingColors = {
+    "Non-Alc":  { color: "#1f5f73", bg: "#e8f7fb",  border: "#7fc6db" },
+    "Wine":      { color: "#7a5020", bg: "#f5ead8",  border: "#c8a060" },
+    "Premium":   { color: "#3a3a7a", bg: "#eaeaf5",  border: "#8888bb" },
+    "Our Story": { color: "#2a6a4a", bg: "#e0f5ea",  border: "#5aaa7a" },
+  };
+
+  const chip = (label, color, bg, border, bold = false) => (
+    <span style={{
+      fontFamily: FONT, fontSize: 11, letterSpacing: 0.5,
+      padding: "4px 10px", borderRadius: 2,
+      color, background: bg, border: `1px solid ${border}`,
+      whiteSpace: "nowrap", fontWeight: bold ? 500 : 400,
+    }}>{label}</span>
+  );
+
+  return (
+    <>
+      {table.notes && (
+        <div style={{
+          fontFamily: FONT, fontSize: 12, color: "#555", fontStyle: "italic",
+          padding: "10px 14px", background: "#f8f8f8", border: "1px solid #e8e8e8",
+          borderRadius: 2, marginBottom: 20,
+        }}>{table.notes}</div>
+      )}
+      {(table.restrictions || []).filter(r => !r.pos && r.note).length > 0 && (
+        <div style={{ marginBottom: 16, padding: "10px 14px", background: "#fef0f0", border: "1px solid #e09090", borderRadius: 2 }}>
+          <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 3, color: "#b04040", marginBottom: 6, textTransform: "uppercase" }}>
+            ⚠ Unassigned restrictions
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {table.restrictions.filter(r => !r.pos && r.note).map((r, i) => (
+              <span key={i} style={{ fontFamily: FONT, fontSize: 11, color: "#b04040", fontWeight: 500 }}>{r.note}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+        {table.seats.map(seat => {
+          const seatRestrictions = (table.restrictions || []).filter(r => r.pos === seat.id);
+          const seatExtras = dishes.filter(d => seat.extras?.[d.id]?.ordered);
+          const ws = waterStyle(seat.water);
+          const pc = pairingColors[seat.pairing] || pairingColors["Non-Alc"];
+          const hasInfo = seatRestrictions.length > 0 || seatExtras.length > 0;
+          return (
+            <div key={seat.id} style={{ border: "1px solid #ececec", borderRadius: 10, padding: "12px", background: "#fff" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: "50%",
+                    border: `1px solid ${seatRestrictions.length ? "#e08080" : "#d0d0d0"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontFamily: FONT, fontSize: 10, fontWeight: 600,
+                    color: seatRestrictions.length ? "#b04040" : "#444",
+                  }}>P{seat.id}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <span style={{
+                    fontFamily: FONT, fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                    padding: "4px 10px", borderRadius: 999,
+                    background: seat.water === "—" ? "#f5f5f5" : (ws.bg || "#f0f0f0"),
+                    color: seat.water === "—" ? "#666" : "#1a1a1a", border: "1px solid #e0e0e0",
+                  }}>{seat.water}</span>
+                  {seat.pairing && <span style={{
+                    fontFamily: FONT, fontSize: 11, fontWeight: 600, letterSpacing: 0.4,
+                    padding: "4px 10px", borderRadius: 999,
+                    background: pc.bg, border: `1px solid ${pc.border}`, color: pc.color,
+                  }}>{seat.pairing}</span>}
+                </div>
+              </div>
+              {hasInfo ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {seatRestrictions.map((r, i) => (
+                    <span key={i} style={{ fontFamily: FONT, fontSize: 11, fontWeight: 500, letterSpacing: 0.3, padding: "4px 9px", borderRadius: 999, background: "#fef0f0", border: "1px solid #e09090", color: "#b04040" }}>⚠ {r.note}</span>
+                  ))}
+                  {seatExtras.map(d => {
+                    const ex = seat.extras[d.id];
+                    return <span key={d.id} style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 0.3, padding: "4px 9px", borderRadius: 999, background: "#e8f5e8", border: "1px solid #88cc88", color: "#2a6a2a" }}>{d.name}{ex.pairing && ex.pairing !== "—" ? ` · ${ex.pairing}` : ""}</span>;
+                  })}
+                </div>
+              ) : <div style={{ fontFamily: FONT, fontSize: 11, color: "#777" }}>No extra notes</div>}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ── Display Board ─────────────────────────────────────────────────────────────
 function DisplayBoard({ tables, dishes }) {
-  const [sel, setSel]    = useState(null);
+  const [sel, setSel]      = useState(null);
   const [expanded, setExp] = useState(null);
   const isMobile = useIsMobile(700);
 
@@ -1393,10 +1420,8 @@ function DisplayBoard({ tables, dishes }) {
   const visible = sorted.filter(t => t.active || t.resTime || t.resName);
 
   useEffect(() => {
-    if (sel === null) {
-      const first = sorted.find(t => t.active);
-      if (first) setSel(first.id);
-    }
+    const firstActive = sorted.find(t => t.active);
+    if (sel === null && firstActive) setSel(firstActive.id);
   }, [tables]);
 
   const chip = (label, color, bg, border, bold = false) => (
@@ -1408,9 +1433,10 @@ function DisplayBoard({ tables, dishes }) {
     }}>{label}</span>
   );
 
+  // ── MOBILE layout ────────────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <div style={{ overflowY: "auto", overflowX: "hidden", padding: "12px 12px 40px", background: "#fafafa", minHeight: "calc(100vh - 90px)" }}>
+      <div style={{ overflowY: "auto", overflowX: "hidden", padding: "12px 12px 40px", background: "#fafafa", minHeight: "calc(100vh - 52px)" }}>
         {visible.length === 0 && (
           <div style={{ fontFamily: FONT, fontSize: 10, color: "#666", textAlign: "center", marginTop: 60, letterSpacing: 2 }}>
             no active tables
@@ -1424,13 +1450,13 @@ function DisplayBoard({ tables, dishes }) {
             <div key={t.id} style={{
               background: isSeated ? "#f8fcf9" : "#fbfcfe", borderRadius: 10,
               border: `1px solid ${isSeated ? "#9bd0aa" : "#d9e5f2"}`,
-              marginBottom: 10, overflow: "hidden",
-              boxShadow: isOpen ? "0 8px 24px rgba(0,0,0,0.08)" : "none",
-              transition: "box-shadow 0.15s",
+              marginBottom: 10,
+              boxShadow: isOpen ? "0 8px 24px rgba(0,0,0,0.08)" : "0 1px 0 rgba(0,0,0,0.02)",
+              transition: "box-shadow 0.15s", overflow: "hidden",
             }}>
               <div style={{ height: 4, background: isSeated ? "#7bc492" : "#7faedb" }} />
               <div onClick={() => setExp(isOpen ? null : t.id)} style={{
-                padding: "16px", display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
+                padding: "16px 16px", display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
               }}>
                 <div style={{ fontFamily: FONT, fontSize: 26, fontWeight: 300, color: isSeated ? "#1a1a1a" : "#444", minWidth: 36, lineHeight: 1 }}>
                   {String(t.id).padStart(2,"0")}
@@ -1442,18 +1468,18 @@ function DisplayBoard({ tables, dishes }) {
                     </div>
                   )}
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    {t.resTime   && <span style={{ fontFamily: FONT, fontSize: 11, color: "#555", fontWeight: 500 }}>res. {t.resTime}</span>}
+                    {t.resTime  && <span style={{ fontFamily: FONT, fontSize: 11, color: "#1a1a1a", fontWeight: 500 }}>res. {t.resTime}</span>}
                     {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
+                    {isSeated
+                      ? <span style={{ fontFamily: FONT, fontSize: 9, color: "#2f7a45", letterSpacing: 1, border: "1px solid #9bd0aa", borderRadius: 999, padding: "3px 8px", background: "#ecf8ef", fontWeight: 700 }}>SEATED</span>
+                      : <span style={{ fontFamily: FONT, fontSize: 9, color: "#9a6a18", letterSpacing: 1, border: "1px solid #e8d8b8", borderRadius: 999, padding: "3px 8px", background: "#fff8ea", fontWeight: 700 }}>RESERVED</span>
+                    }
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                  {isSeated
-                    ? <span style={{ fontFamily: FONT, fontSize: 9, color: "#2f7a45", letterSpacing: 1, border: "1px solid #9bd0aa", borderRadius: 999, padding: "3px 8px", background: "#ecf8ef", fontWeight: 700 }}>SEATED</span>
-                    : <span style={{ fontFamily: FONT, fontSize: 9, color: "#9a6a18", letterSpacing: 1, border: "1px solid #e8d8b8", borderRadius: 999, padding: "3px 8px", background: "#fff8ea", fontWeight: 700 }}>RESERVED</span>
-                  }
-                  {t.birthday && <span style={{ fontSize: 14 }}>🎂</span>}
-                  {t.menuType && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", border: "1px solid #e8e8e8", borderRadius: 2, padding: "3px 6px" }}>{t.menuType}</span>}
-                  {hasRestr   && <span style={{ fontSize: 14 }}>⚠️</span>}
+                  {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
+                  {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", border: "1px solid #e8e8e8", borderRadius: 2, padding: "3px 6px" }}>{t.menuType}</span>}
+                  {hasRestr    && <span style={{ fontSize: 14 }}>⚠️</span>}
                   {t.guestType === "hotel" && t.room && (
                     <span style={{ fontFamily: FONT, fontSize: 9, color: "#a07040", border: "1px solid #d4b888", borderRadius: 2, padding: "3px 6px", fontWeight: 500 }}>#{t.room}</span>
                   )}
@@ -1466,7 +1492,7 @@ function DisplayBoard({ tables, dishes }) {
               </div>
               {isOpen && (
                 <div style={{ borderTop: "1px solid #f0f0f0", padding: "16px 16px 20px", background: "#fff" }}>
-                  {(t.guestType === "hotel" || t.arrivedAt || t.resTime || t.menuType || t.birthday) && (
+                  {(t.guestType === "hotel" || t.arrivedAt || t.resTime || t.menuType) && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
                       {t.guestType === "hotel" && t.room && chip(`Hotel #${t.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
                       {t.menuType  && chip(`${t.menuType} menu`, "#333", "#f8f8f8", "#d8d8d8", true)}
@@ -1476,7 +1502,7 @@ function DisplayBoard({ tables, dishes }) {
                       {t.birthday  && chip("🎂 birthday", "#7a5020", "#fdf0e0", "#d4b888", true)}
                     </div>
                   )}
-                  <TableSeatDetail table={t} dishes={dishes} isMobile={isMobile} />
+                  <TableSeatDetail table={t} dishes={dishes} isMobile={true} />
                 </div>
               )}
             </div>
@@ -1486,11 +1512,14 @@ function DisplayBoard({ tables, dishes }) {
     );
   }
 
-  // Desktop split panel
-  const selectedTable = tables.find(t => t.id === sel);
+  // ── DESKTOP layout: split panel ──────────────────────────────────────────────
+  const table = tables.find(t => t.id === sel);
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 90px)", overflow: "hidden" }}>
-      <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid #e8e8e8", overflowY: "auto", padding: "16px 0", background: "#fafafa" }}>
+    <div style={{ display: "flex", height: "calc(100vh - 52px)", overflow: "hidden" }}>
+      <div style={{
+        width: 220, flexShrink: 0, borderRight: "1px solid #e8e8e8",
+        overflowY: "auto", padding: "16px 0", background: "#fafafa",
+      }}>
         {visible.length === 0 && (
           <div style={{ fontFamily: FONT, fontSize: 10, color: "#666", padding: "20px", letterSpacing: 1 }}>no reservations</div>
         )}
@@ -1506,7 +1535,9 @@ function DisplayBoard({ tables, dishes }) {
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, color: "#1a1a1a", letterSpacing: 1 }}>{String(t.id).padStart(2,"0")}</span>
+                  <span style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, color: "#1a1a1a", letterSpacing: 1 }}>
+                    {String(t.id).padStart(2,"0")}
+                  </span>
                   {isSeated && <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f7a45", border: "1px solid #9bd0aa", background: "#ecf8ef", borderRadius: 2, padding: "2px 5px", fontWeight: 600, letterSpacing: 1 }}>SEATED</span>}
                 </div>
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -1522,7 +1553,7 @@ function DisplayBoard({ tables, dishes }) {
               </div>
               {t.resName && <div style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a", fontWeight: 500, marginBottom: 3 }}>{t.resName}</div>}
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {t.resTime   && <span style={{ fontFamily: FONT, fontSize: 10, color: "#555", fontWeight: 500 }}>res. {t.resTime}</span>}
+                {t.resTime   && <span style={{ fontFamily: FONT, fontSize: 10, color: "#1a1a1a", fontWeight: 500 }}>res. {t.resTime}</span>}
                 {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 10, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
                 {!isSeated   && <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f5f8a", border: "1px solid #c6d7ea", background: "#eef5fb", borderRadius: 2, padding: "2px 5px", fontWeight: 600, letterSpacing: 1 }}>RESERVED</span>}
               </div>
@@ -1532,30 +1563,32 @@ function DisplayBoard({ tables, dishes }) {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "36px 48px", background: "#fff" }}>
-        {!selectedTable ? (
-          <div style={{ fontFamily: FONT, fontSize: 11, color: "#666", marginTop: 60, textAlign: "center", letterSpacing: 2 }}>SELECT A TABLE</div>
+        {!table ? (
+          <div style={{ fontFamily: FONT, fontSize: 11, color: "#666", marginTop: 60, textAlign: "center", letterSpacing: 2 }}>
+            SELECT A TABLE
+          </div>
         ) : (
           <>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
               <div>
                 <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#444", marginBottom: 4 }}>TABLE</div>
-                <div style={{ fontFamily: FONT, fontSize: 60, fontWeight: 300, color: "#1a1a1a", lineHeight: 1 }}>
-                  {String(selectedTable.id).padStart(2,"0")}
+                <div style={{ fontFamily: FONT, fontSize: 52, fontWeight: 300, lineHeight: 1, color: "#1a1a1a" }}>
+                  {String(table.id).padStart(2,"0")}
                 </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, paddingTop: 4 }}>
-                {selectedTable.resName && <span style={{ fontFamily: FONT, fontSize: 18, color: "#1a1a1a", fontWeight: 400 }}>{selectedTable.resName}</span>}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  {selectedTable.guestType === "hotel" && selectedTable.room && chip(`Hotel #${selectedTable.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
-                  {selectedTable.menuType  && chip(`${selectedTable.menuType} menu`, "#333", "#f8f8f8", "#d0d0d0", true)}
-                  {selectedTable.resTime   && chip(`res. ${selectedTable.resTime}`,   "#333", "#f0f0f0", "#d0d0d0")}
-                  {selectedTable.arrivedAt && chip(`arr. ${selectedTable.arrivedAt}`, "#2a6a3a", "#e0f5ea", "#7acc8a", true)}
-                  {chip(`${selectedTable.guests} guest${selectedTable.guests === 1 ? "" : "s"}`, "#333", "#f5f5f5", "#dedede", true)}
-                  {selectedTable.birthday  && chip("🎂 birthday cake", "#7a5020", "#fdf0e0", "#d4b888", true)}
-                </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", marginTop: 8 }}>
+                {table.guestType === "hotel" && table.room && chip(`Hotel #${table.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
+                {table.menuType  && chip(`${table.menuType} menu`, "#333", "#f8f8f8", "#d8d8d8", true)}
+                {table.resTime   && chip(`res. ${table.resTime}`, "#555", "#f0f0f0", "#d8d8d8")}
+                {table.arrivedAt && chip(`arr. ${table.arrivedAt}`, "#2a6a3a", "#e0f5ea", "#7acc8a", true)}
+                {chip(`${table.guests} guest${table.guests === 1 ? "" : "s"}`, "#333", "#f5f5f5", "#dedede", true)}
+                {table.birthday  && chip("🎂 birthday", "#7a5020", "#fdf0e0", "#d4b888", true)}
               </div>
             </div>
-            <TableSeatDetail table={selectedTable} dishes={dishes} isMobile={isMobile} />
+            {table.resName && (
+              <div style={{ fontFamily: FONT, fontSize: 20, fontWeight: 500, color: "#1a1a1a", marginBottom: 28 }}>{table.resName}</div>
+            )}
+            <TableSeatDetail table={table} dishes={dishes} isMobile={false} />
           </>
         )}
       </div>
@@ -1563,7 +1596,53 @@ function DisplayBoard({ tables, dishes }) {
   );
 }
 
-// ── FullModal ─────────────────────────────────────────────────────────────────
+// ── Header ────────────────────────────────────────────────────────────────────
+function Header({ modeLabel, showSummary, showMenu, showArchive, syncLabel, syncLive, activeCount, reserved, seated, onSummary, onMenu, onArchive, onExit }) {
+  const modeColor = modeLabel === "ADMIN" ? "#4b4b88" : modeLabel === "SERVICE" ? "#2f7a45" : "#555";
+  return (
+    <div style={{
+      borderBottom: "1px solid #f0f0f0", padding: "10px 12px",
+      display: "flex", flexDirection: "column", gap: 10,
+      background: "#fff", position: "sticky", top: 0, zIndex: 50,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 4, color: "#1a1a1a" }}>MILKA</span>
+          <span style={{ width: 1, height: 14, background: "#e8e8e8" }} />
+          <span style={{ fontSize: 10, letterSpacing: 3, color: modeColor, textTransform: "uppercase", fontWeight: 700 }}>{modeLabel}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {showSummary && (
+            <button onClick={onSummary} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px", border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a" }}>SUMMARY</button>
+          )}
+          {showMenu && (
+            <button onClick={onMenu} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px", border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a" }}>MENU</button>
+          )}
+          {showArchive && (
+            <button onClick={onArchive} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px", border: "1px solid #e8d8b8", borderRadius: 999, cursor: "pointer", background: "#fff8f0", color: "#8a6030" }}>ARCHIVE</button>
+          )}
+          <span style={{
+            fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
+            border: `1px solid ${syncLive ? "#8fc39f" : "#d8d8d8"}`,
+            borderRadius: 999,
+            background: syncLive ? "#eef8f1" : "#f6f6f6",
+            color: syncLive ? "#2f7a45" : "#555",
+            fontWeight: 600, whiteSpace: "nowrap",
+          }}>{syncLabel}</span>
+          <button onClick={onExit} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px", border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a", flexShrink: 0 }}>EXIT</button>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={topStatChip}>{activeCount} seated</span>
+        <span style={topStatChip}>{reserved} reserved</span>
+        <span style={topStatChip}>{seated} guests</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Summary Modal ─────────────────────────────────────────────────────────────
+// ── Shared full-screen modal shell ────────────────────────────────────────────
 function FullModal({ title, onClose, actions, children }) {
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -1572,13 +1651,23 @@ function FullModal({ title, onClose, actions, children }) {
   }, []);
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "#fff", display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 54, borderBottom: "1px solid #ebebeb", background: "#fff", flexShrink: 0 }}>
+      {/* Sticky top bar */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 20px", height: 54, borderBottom: "1px solid #ebebeb",
+        background: "#fff", flexShrink: 0,
+      }}>
         <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#888", textTransform: "uppercase" }}>{title}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {actions}
-          <button onClick={onClose} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px", border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555" }}>✕ CLOSE</button>
+          <button onClick={onClose} style={{
+            fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px",
+            border: "1px solid #e0e0e0", borderRadius: 2,
+            cursor: "pointer", background: "#fff", color: "#555",
+          }}>✕ CLOSE</button>
         </div>
       </div>
+      {/* Scrollable body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 60px" }}>
         {children}
       </div>
@@ -1586,7 +1675,7 @@ function FullModal({ title, onClose, actions, children }) {
   );
 }
 
-// ── SummaryModal ──────────────────────────────────────────────────────────────
+// ── Summary Modal ─────────────────────────────────────────────────────────────
 function SummaryModal({ tables, dishes = [], onClose }) {
   const active = tables.filter(t => t.active || t.arrivedAt);
   const pairingColor = { "Wine": "#8a6030", "Non-Alc": "#1f5f73", "Premium": "#3a3a7a", "Our Story": "#2a6a4a" };
@@ -1640,9 +1729,9 @@ function SummaryModal({ tables, dishes = [], onClose }) {
             </div>
             <div style={{ padding: "8px 12px 12px" }}>
               {t.seats.map(s => {
-                const ws     = waterStyle(s.water);
-                const restr  = (t.restrictions || []).filter(r => r.pos === s.id);
-                const extras = dishes.filter(d => s.extras?.[d.id]?.ordered);
+                const ws      = waterStyle(s.water);
+                const restr   = (t.restrictions || []).filter(r => r.pos === s.id);
+                const extras  = dishes.filter(d => s.extras?.[d.id]?.ordered);
                 const allBevs = [
                   ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
                   ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
@@ -1668,7 +1757,7 @@ function SummaryModal({ tables, dishes = [], onClose }) {
   );
 }
 
-// ── ArchiveModal ──────────────────────────────────────────────────────────────
+// ── Archive Modal ─────────────────────────────────────────────────────────────
 function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }) {
   const [entries, setEntries]   = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -1688,24 +1777,40 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
 
   const archiveActions = (
     <div style={{ display: "flex", gap: 8 }}>
-      <button onClick={onClearAll} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 14px", border: "1px solid #e8e8e8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#888" }}>CLEAR ALL</button>
-      <button onClick={async () => { await onArchiveAndClear(); loadEntries(); }} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px", border: "1px solid #c8a06e", borderRadius: 2, cursor: "pointer", background: "#fdf8f0", color: "#8a6030" }}>ARCHIVE &amp; CLEAR ({activeTables.length})</button>
+      <button onClick={onClearAll} style={{
+        fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 14px",
+        border: "1px solid #e8e8e8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#888",
+      }}>CLEAR ALL</button>
+      <button onClick={async () => { await onArchiveAndClear(); loadEntries(); }} style={{
+        fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px",
+        border: "1px solid #c8a06e", borderRadius: 2, cursor: "pointer", background: "#fdf8f0", color: "#8a6030",
+      }}>ARCHIVE &amp; CLEAR ({activeTables.length})</button>
     </div>
   );
 
   return (
     <FullModal title="Archive · End of Day" onClose={onClose} actions={archiveActions}>
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
-        {!supabase && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>Supabase not connected — archive unavailable offline</div>}
+        {!supabase && (
+          <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>
+            Supabase not connected — archive unavailable offline
+          </div>
+        )}
         {supabase && loading && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>Loading…</div>}
-        {supabase && !loading && entries.length === 0 && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>No archived services yet</div>}
+        {supabase && !loading && entries.length === 0 && (
+          <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>No archived services yet</div>
+        )}
         {entries.map(entry => {
-          const isExp       = expanded === entry.id;
-          const entryTables = entry.state?.tables || [];
-          const totalGuests = entryTables.reduce((a, t) => a + (t.guests || 0), 0);
+          const isExp        = expanded === entry.id;
+          const entryTables  = entry.state?.tables || [];
+          const totalGuests  = entryTables.reduce((a, t) => a + (t.guests || 0), 0);
           return (
             <div key={entry.id} style={{ border: "1px solid #f0f0f0", borderRadius: 4, marginBottom: 8, overflow: "hidden" }}>
-              <div onClick={() => setExpanded(isExp ? null : entry.id)} style={{ padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: isExp ? "#fafafa" : "#fff" }}>
+              <div onClick={() => setExpanded(isExp ? null : entry.id)} style={{
+                padding: "14px 16px", cursor: "pointer", display: "flex",
+                alignItems: "center", justifyContent: "space-between",
+                background: isExp ? "#fafafa" : "#fff",
+              }}>
                 <div>
                   <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 500, color: "#1a1a1a", marginBottom: 3 }}>{entry.label}</div>
                   <div style={{ fontFamily: FONT, fontSize: 10, color: "#999" }}>{entryTables.length} tables · {totalGuests} guests</div>
@@ -1724,9 +1829,9 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
                         {t.birthday  && <span style={{ fontSize: 12 }}>🎂</span>}
                       </div>
                       {(t.seats || []).map(s => {
-                        const ws     = waterStyle(s.water);
-                        const restr  = (t.restrictions || []).filter(r => r.pos === s.id);
-                        const extras = (entry.state?.dishes || dishes).filter(d => s.extras?.[d.id]?.ordered);
+                        const ws      = waterStyle(s.water);
+                        const restr   = (t.restrictions || []).filter(r => r.pos === s.id);
+                        const extras  = (entry.state?.dishes || dishes).filter(d => s.extras?.[d.id]?.ordered);
                         const allBevs = [
                           ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
                           ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
@@ -1756,36 +1861,37 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
   );
 }
 
-// ── PIN codes ─────────────────────────────────────────────────────────────────
-const PINS = { admin: "3412" };
+// ── Access gate constants ─────────────────────────────────────────────────────
+const PINS            = { admin: "3412" };
+const ACCESS_PASSWORD = "milka2025";          // ← change to your own password
+const ACCESS_KEY      = "milka_access";
+const ACCESS_TTL_MS   = 12 * 60 * 60 * 1000; // 12 hours
 
-// ── LoginScreen ───────────────────────────────────────────────────────────────
-function LoginScreen({ onEnter }) {
-  const [picking, setPicking] = useState(null);
-  const [pin, setPin]         = useState("");
-  const [shake, setShake]     = useState(false);
+const readAccess = () => {
+  try {
+    const raw = localStorage.getItem(ACCESS_KEY);
+    if (!raw) return false;
+    const { ts } = JSON.parse(raw);
+    return Date.now() - ts < ACCESS_TTL_MS;
+  } catch { return false; }
+};
+const writeAccess = () => {
+  try { localStorage.setItem(ACCESS_KEY, JSON.stringify({ ts: Date.now() })); } catch {}
+};
 
-  const MODES = [
-    { id: "display", label: "Display",  sub: "Read-only view",        locked: false },
-    { id: "service", label: "Service",  sub: "Seat & service inputs", locked: false  },
-    { id: "admin",   label: "Admin",    sub: "Full access",           locked: true  },
-  ];
+// ── GateScreen — password wall before anything else ───────────────────────────
+function GateScreen({ onPass }) {
+  const [pw, setPw]       = useState("");
+  const [shake, setShake] = useState(false);
+  const [show, setShow]   = useState(false);
 
-  const handlePick = m => {
-    if (!m.locked) { onEnter(m.id); return; }
-    setPicking(m.id); setPin("");
-  };
-
-  const handleDigit = d => {
-    const next = pin + d;
-    setPin(next);
-    if (next.length === 4) {
-      if (next === PINS[picking]) {
-        onEnter(picking); setPicking(null); setPin("");
-      } else {
-        setShake(true);
-        setTimeout(() => { setShake(false); setPin(""); }, 600);
-      }
+  const attempt = val => {
+    if (val === ACCESS_PASSWORD) {
+      writeAccess();
+      onPass();
+    } else {
+      setShake(true);
+      setTimeout(() => { setShake(false); setPw(""); }, 600);
     }
   };
 
@@ -1802,157 +1908,295 @@ function LoginScreen({ onEnter }) {
         <div style={{ fontSize: 9, letterSpacing: 4, color: "#555" }}>SERVICE BOARD</div>
       </div>
 
+      <div style={{ width: "100%", maxWidth: 320, textAlign: "center" }}>
+        <div style={{ fontFamily: FONT, fontSize: 10, letterSpacing: 3, color: "#888", marginBottom: 28, textTransform: "uppercase" }}>
+          enter password
+        </div>
+
+        <div style={{ animation: shake ? "shake 0.4s ease" : "none", marginBottom: 12 }}>
+          <div style={{ position: "relative" }}>
+            <input
+              type={show ? "text" : "password"}
+              value={pw}
+              onChange={e => setPw(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && attempt(pw)}
+              autoFocus
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              style={{
+                ...baseInp,
+                textAlign: "center",
+                letterSpacing: show ? 2 : 6,
+                fontSize: MOBILE_SAFE_INPUT_SIZE,
+                paddingRight: 44,
+                borderColor: shake ? "#f0c0c0" : "#e8e8e8",
+                transition: "border-color 0.2s",
+              }}
+              placeholder="••••••••"
+            />
+            <button onClick={() => setShow(s => !s)} style={{
+              position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer",
+              color: "#bbb", fontSize: 13, padding: 0, lineHeight: 1,
+            }}>{show ? "hide" : "show"}</button>
+          </div>
+        </div>
+
+        <button onClick={() => attempt(pw)} style={{
+          width: "100%", fontFamily: FONT, fontSize: 11, letterSpacing: 3,
+          padding: "14px", border: "1px solid #1a1a1a", borderRadius: 2,
+          cursor: "pointer", background: "#1a1a1a", color: "#fff",
+          textTransform: "uppercase", marginTop: 8,
+        }}>Enter</button>
+      </div>
+
+      <style>{`@keyframes shake {
+        0%,100%{transform:translateX(0)}
+        20%{transform:translateX(-8px)} 40%{transform:translateX(8px)}
+        60%{transform:translateX(-5px)} 80%{transform:translateX(5px)}
+      }`}</style>
+    </div>
+  );
+}
+
+// ── Login Screen ──────────────────────────────────────────────────────────────
+function LoginScreen({ onEnter }) {
+  const MODES = [
+    { id: "display",  label: "Display",  sub: "read-only view",      icon: "◎", pin: false },
+    { id: "service",  label: "Service",  sub: "full service access",  icon: "◈", pin: false },
+    { id: "admin",    label: "Admin",    sub: "pin required",         icon: "◆", pin: true  },
+  ];
+  const [picking, setPicking] = useState(null);
+  const [pin, setPin]         = useState("");
+  const [shake, setShake]     = useState(false);
+
+  const handleTile = mode => {
+    if (!mode.pin) { onEnter(mode.id); return; }
+    setPicking(mode.id);
+    setPin("");
+  };
+
+  const handleDigit = d => {
+    const next = pin + d;
+    setPin(next);
+    if (next.length === 4) {
+      if (next === PINS[picking]) {
+        onEnter(picking);
+        setPicking(null);
+      } else {
+        setShake(true);
+        setPin("");
+        setTimeout(() => setShake(false), 500);
+      }
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <GlobalStyle />
+      <div style={{ marginBottom: 48, textAlign: "center" }}>
+        <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, letterSpacing: 6, color: "#1a1a1a", marginBottom: 8 }}>MILKA</div>
+        <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#999" }}>SERVICE BOARD</div>
+      </div>
+
       {!picking ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 340 }}>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", maxWidth: 480 }}>
           {MODES.map(m => (
-            <button key={m.id} onClick={() => handlePick(m)} style={{
-              fontFamily: FONT, textAlign: "left",
-              padding: "22px 24px", border: "1px solid #e8e8e8",
-              borderRadius: 3, cursor: "pointer", background: "#fff",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              transition: "all 0.12s", width: "100%",
-            }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = "#1a1a1a"}
-            onMouseLeave={e => e.currentTarget.style.borderColor = "#e8e8e8"}
-            >
+            <button key={m.id} onClick={() => handleTile(m)} style={{
+              fontFamily: FONT, cursor: "pointer",
+              background: "#fff", border: "1px solid #e8e8e8", borderRadius: 2,
+              padding: "28px 32px", width: 140, textAlign: "center",
+              transition: "all 0.12s", display: "flex", flexDirection: "column", alignItems: "center", gap: 10,
+            }}>
+              <span style={{ fontSize: 24, color: "#444" }}>{m.icon}</span>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "#1a1a1a", letterSpacing: 2, marginBottom: 4 }}>
-                  {m.label.toUpperCase()}
-                </div>
-                <div style={{ fontSize: 10, color: "#444", letterSpacing: 1 }}>{m.sub}</div>
-              </div>
-              <div style={{ fontSize: 14, color: m.locked ? "#555" : "#4a9a6a" }}>
-                {m.locked ? "🔒" : "→"}
+                <div style={{ fontSize: 11, letterSpacing: 2, color: "#1a1a1a", fontWeight: 500 }}>{m.label.toUpperCase()}</div>
+                <div style={{ fontSize: 9, letterSpacing: 1, color: "#999", marginTop: 4 }}>{m.sub}</div>
               </div>
             </button>
           ))}
         </div>
       ) : (
-        <div style={{ width: "100%", maxWidth: 300, margin: "0 auto", textAlign: "center" }}>
-          <button onClick={() => { setPicking(null); setPin(""); }} style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontFamily: FONT, fontSize: 10, color: "#666", letterSpacing: 2,
-            display: "block", margin: "0 auto 32px",
-          }}>← back</button>
-
-          <div style={{ fontSize: 11, letterSpacing: 3, color: "#444", marginBottom: 28, textTransform: "uppercase" }}>
-            {picking} · enter PIN
-          </div>
-
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 28, width: "100%", maxWidth: 320 }}>
+          <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#666" }}>ENTER PIN</div>
           <div style={{
-            display: "flex", justifyContent: "center", gap: 14, marginBottom: 36,
-            animation: shake ? "shake 0.4s ease" : "none",
+            display: "flex", gap: 14, animation: shake ? "shake 0.4s" : "none",
           }}>
             {[0,1,2,3].map(i => (
               <div key={i} style={{
-                width: 12, height: 12, borderRadius: "50%",
-                background: pin.length > i ? "#1a1a1a" : "#e8e8e8",
+                width: 14, height: 14, borderRadius: "50%",
+                background: i < pin.length ? "#1a1a1a" : "#e8e8e8",
                 transition: "background 0.1s",
               }} />
             ))}
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d, i) => (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, width: "100%" }}>
+            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((d, i) => (
               <button key={i} onClick={() => {
-                if (d === "") return;
-                if (d === "⌫") { setPin(p => p.slice(0,-1)); return; }
-                if (pin.length < 4) handleDigit(String(d));
-              }} style={{
-                fontFamily: FONT, fontSize: 20, fontWeight: 300,
-                padding: "20px 0", border: "1px solid #e8e8e8",
-                borderRadius: 2, cursor: d === "" ? "default" : "pointer",
-                background: d === "" ? "transparent" : "#fff",
-                color: "#1a1a1a", transition: "all 0.08s",
-                visibility: d === "" ? "hidden" : "visible",
-              }}
-              onMouseEnter={e => { if (d !== "") e.currentTarget.style.background = "#f5f5f5"; }}
-              onMouseLeave={e => { if (d !== "") e.currentTarget.style.background = "#fff"; }}
-              >{d}</button>
+                if (d === "⌫") setPin(p => p.slice(0,-1));
+                else if (d !== "") handleDigit(d);
+              }} disabled={d === ""} style={{
+                fontFamily: FONT, fontSize: 22, fontWeight: 300,
+                padding: "18px 0", border: "1px solid #e8e8e8", borderRadius: 2,
+                background: d === "" ? "transparent" : "#fff", cursor: d === "" ? "default" : "pointer",
+                color: "#1a1a1a", letterSpacing: 1,
+                opacity: d === "" ? 0 : 1,
+                transition: "all 0.08s",
+              }}>{d}</button>
             ))}
           </div>
+          <button onClick={() => { setPicking(null); setPin(""); }} style={{
+            fontFamily: FONT, fontSize: 10, letterSpacing: 2, color: "#999",
+            background: "none", border: "none", cursor: "pointer", padding: 8,
+          }}>CANCEL</button>
+          <style>{`@keyframes shake {
+            0%{transform:translateX(0)} 20%{transform:translateX(-8px)}
+            40%{transform:translateX(8px)} 60%{transform:translateX(-5px)}
+            80%{transform:translateX(5px)} 100%{transform:translateX(0)}
+          }`}</style>
         </div>
       )}
     </div>
   );
 }
 
+function GlobalStyle() {
+  return (
+    <style>{`
+      * { box-sizing: border-box; }
+      body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; color: #1a1a1a; }
+      input, textarea, select { font-size: ${MOBILE_SAFE_INPUT_SIZE}px; }
+      button, a, label { touch-action: manipulation; }
+    `}</style>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const initialState = readLocalBoardState() || defaultBoardState();
+  const localSnapshot = readLocalBoardState();
+  const initialState  = localSnapshot || defaultBoardState();
+
+  const localBev = readLocalBeverages();
 
   const [tables,    setTables]    = useState(initialState.tables);
   const [dishes,    setDishes]    = useState(initialState.dishes);
   const [wines,     setWines]     = useState(initialState.wines);
-
-  // Beverages are stored separately from boardState (their own Supabase table + local key)
-  const localBev = readLocalBeverages();
-  const [cocktails, setCocktails] = useState(localBev?.cocktails ?? initCocktails);
-  const [spirits,   setSpirits]   = useState(localBev?.spirits   ?? initSpirits);
-  const [beers,     setBeers]     = useState(localBev?.beers      ?? initBeers);
-
-  // FIX: mode persisted in localStorage, but read inside useState initializer so it's safe
+  const [cocktails, setCocktails] = useState(localBev?.cocktails ?? initialState.cocktails ?? initCocktails);
+  const [spirits,   setSpirits]   = useState(localBev?.spirits   ?? initialState.spirits   ?? initSpirits);
+  const [beers,     setBeers]     = useState(localBev?.beers      ?? initialState.beers     ?? initBeers);
   const [mode, setMode] = useState(() => {
     try { return localStorage.getItem("milka_mode") || null; } catch { return null; }
   });
-  const [sel,        setSel]        = useState(null);
-  const [resModal,   setResModal]   = useState(null);
+  const [sel,          setSel]          = useState(null);
+  const [resModal,     setResModal]     = useState(null);
   const [adminOpen,    setAdminOpen]    = useState(false);
   const [summaryOpen,  setSummaryOpen]  = useState(false);
   const [archiveOpen,  setArchiveOpen]  = useState(false);
-  const [syncStatus, setSyncStatus] = useState(hasSupabaseConfig ? "connecting" : "local-only");
+  const [syncStatus,   setSyncStatus]   = useState(hasSupabaseConfig ? "connecting" : "local-only");
+  // Access gate: checked once at init against 12h TTL
+  const [authed,       setAuthed]       = useState(() => readAccess());
+  // Hydration gate: holds render until Supabase initial fetch resolves (or 4s timeout)
+  const [hydrated,     setHydrated]     = useState(!hasSupabaseConfig);
 
-  const applyingRemoteRef = useRef(false);
-  const lastRemoteJsonRef = useRef("");
-  const saveTimerRef      = useRef(null);
+  const applyingRemoteRef  = useRef(false);
+  const lastRemoteJsonRef  = useRef("");
+  const saveTimerRef       = useRef(null);
 
-  const boardState = { tables, dishes, wines };
-  // FIX: stable reference to avoid stale closure in Supabase realtime handler
+  const boardState = { tables, dishes, wines, cocktails, spirits, beers };
+  const boardJson  = JSON.stringify(boardState);
   const boardStateRef = useRef(boardState);
   boardStateRef.current = boardState;
 
-  const applyBoardState = useCallback(payload => {
+  const applyBoardState = payload => {
     if (!payload || typeof payload !== "object") return;
     applyingRemoteRef.current = true;
-    const sanitized = {
-      tables:    Array.isArray(payload.tables)    ? payload.tables.map(sanitizeTable) : initTables,
-      dishes:    Array.isArray(payload.dishes)    ? payload.dishes    : initDishes,
-      wines:     Array.isArray(payload.wines)     ? payload.wines     : initWines,
-    };
-    lastRemoteJsonRef.current = JSON.stringify(sanitized);
-    setTables(sanitized.tables);
-    setDishes(sanitized.dishes);
-    setWines(sanitized.wines);
-  }, []);
+    lastRemoteJsonRef.current = JSON.stringify(payload);
+    setTables(Array.isArray(payload.tables) ? payload.tables.map(sanitizeTable) : initTables);
+    setDishes(Array.isArray(payload.dishes)    ? payload.dishes    : initDishes);
+    setWines(Array.isArray(payload.wines)      ? payload.wines     : initWines);
+    setCocktails(Array.isArray(payload.cocktails) ? payload.cocktails : initCocktails);
+    setSpirits(Array.isArray(payload.spirits)  ? payload.spirits   : initSpirits);
+    setBeers(Array.isArray(payload.beers)      ? payload.beers     : initBeers);
+    setTimeout(() => { applyingRemoteRef.current = false; }, 0);
+  };
 
   const selTable   = tables.find(t => t.id === sel);
   const modalTable = tables.find(t => t.id === resModal);
 
-  const upd     = (id, f, v) => setTables(p => p.map(t => t.id === id ? { ...t, [f]: v } : t));
+  const upd = (id, f, v) => setTables(p => p.map(t => t.id === id ? { ...t, [f]: v } : t));
+
   const updSeat = (tid, sid, f, v) => setTables(p => p.map(t =>
     t.id !== tid ? t : { ...t, seats: t.seats.map(s => s.id === sid ? { ...s, [f]: v } : s) }
   ));
-  const setGuestCount = (tid, n) => setTables(p => p.map(t =>
+
+  const setGuests = (tid, n) => setTables(p => p.map(t =>
     t.id !== tid ? t : { ...t, guests: n, seats: makeSeats(n, t.seats) }
   ));
+
   const seatTable = id => {
     const now = fmt(new Date());
     setTables(p => p.map(t =>
       t.id !== id ? t : { ...t, active: true, arrivedAt: now, seats: makeSeats(t.guests, t.seats) }
     ));
   };
-  const clear = id => {
-    if (!window.confirm("Clear this table and reset all details?")) return;
+
+  const unseatTable = id => {
     setTables(p => p.map(t =>
-      t.id !== id ? t : {
-        ...t, active: false, arrivedAt: null,
-        resName: "", resTime: "", menuType: "", guestType: "", room: "",
-        seats: makeSeats(2), bottleWine: null, restrictions: [], birthday: false, notes: "",
-        guests: 2,
-      }
+      t.id !== id ? t : { ...t, active: false, arrivedAt: null }
     ));
-    if (sel === id) setSel(null);
   };
+
+  const clear = id => {
+    if (typeof window !== "undefined" && !window.confirm("Clear this table and reset its details?")) return;
+    setTables(p => p.map(t => t.id !== id ? t : blankTable(id)));
+    setSel(null);
+  };
+
+  const saveBeverages = async ({ cocktails: newC, spirits: newS, beers: newB }) => {
+    setCocktails(newC);
+    setSpirits(newS);
+    setBeers(newB);
+    writeLocalBeverages({ cocktails: newC, spirits: newS, beers: newB });
+    if (!supabase) return;
+    const rows = [
+      ...newC.map((item, i) => ({ category: "cocktail", name: item.name, notes: item.notes || "", position: i })),
+      ...newS.map((item, i) => ({ category: "spirit",   name: item.name, notes: item.notes || "", position: i })),
+      ...newB.map((item, i) => ({ category: "beer",     name: item.name, notes: item.notes || "", position: i })),
+    ];
+    await supabase.from("beverages").delete().in("category", ["cocktail", "spirit", "beer"]);
+    if (rows.length > 0) await supabase.from("beverages").insert(rows);
+  };
+
+  const clearAll = () => {
+    if (typeof window !== "undefined" && !window.confirm("Clear ALL tables?")) return;
+    setTables(Array.from({ length: 10 }, (_, i) => blankTable(i + 1)));
+    setSel(null);
+    setArchiveOpen(false);
+  };
+
+  const archiveAndClearAll = async () => {
+    if (typeof window !== "undefined" && !window.confirm("Archive today's service and clear all tables?")) return;
+    const snap = boardStateRef.current; // stable reference, never stale
+    const dateStr = new Date().toLocaleDateString("sl-SI", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const activeTables = snap.tables.filter(t => t.active || t.arrivedAt || t.resName || t.resTime);
+    if (supabase) {
+      const { error } = await supabase.from("service_archive").insert({
+        date: new Date().toISOString().slice(0, 10),
+        label: dateStr,
+        state: { ...snap, tables: activeTables },
+      });
+      if (error) {
+        window.alert("Archive failed: " + error.message);
+        return;
+      }
+    }
+    setTables(Array.from({ length: 10 }, (_, i) => blankTable(i + 1)));
+    setSel(null);
+    setArchiveOpen(false);
+  };
+
   const swapSeats = (tid, aId, bId) => setTables(p => p.map(t => {
     if (t.id !== tid) return t;
     const sA = t.seats.find(s => s.id === aId);
@@ -1963,78 +2207,100 @@ export default function App() {
       return s;
     })};
   }));
+
   const saveRes = (id, { name, time, menuType, guests, guestType, room, birthday, restrictions, notes }) => {
     setTables(p => p.map(t =>
-      t.id !== id ? t : {
-        ...t, resName: name, resTime: time, menuType, guestType, room,
-        guests, seats: makeSeats(guests, t.seats), birthday, restrictions, notes,
-      }
+      t.id !== id ? t : { ...t, resName: name, resTime: time, menuType, guestType, room, guests, seats: makeSeats(guests, t.seats), birthday, restrictions, notes }
     ));
     setResModal(null);
   };
-  const changeMode = next => {
-    setMode(next);
-    try { next ? localStorage.setItem("milka_mode", next) : localStorage.removeItem("milka_mode"); } catch {}
+
+  const changeMode = nextMode => {
+    setMode(nextMode);
+    try {
+      if (nextMode) localStorage.setItem("milka_mode", nextMode);
+      else          localStorage.removeItem("milka_mode");
+    } catch {}
   };
+
   const switchMode = () => { changeMode(null); setSel(null); };
 
-  // ── Persist to localStorage + sync to Supabase ─────────────────────────────
-  const boardJson = JSON.stringify(boardState);
+  // ── Persist + sync to Supabase ────────────────────────────────────────────
   useEffect(() => {
-    writeLocalBoardState(boardState);
+    // Don't write anything until we've loaded remote state — avoids stomping Supabase
+    // with a stale localStorage snapshot before the initial fetch resolves.
+    if (!hydrated) return;
 
-    // Don't echo back a change we just received from Supabase
-    if (applyingRemoteRef.current && boardJson === lastRemoteJsonRef.current) {
-      applyingRemoteRef.current = false;
-      return;
-    }
+    writeLocalBoardState(boardStateRef.current);
+
+    if (applyingRemoteRef.current) return;
     if (!supabase) return;
 
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       const { error } = await supabase.from("board_state").upsert({
-        id: "main", state: boardStateRef.current, updated_at: new Date().toISOString(),
+        id: "main",
+        state: boardStateRef.current,
+        updated_at: new Date().toISOString(),
       });
       setSyncStatus(error ? "sync-error" : "live");
     }, 400);
 
     return () => clearTimeout(saveTimerRef.current);
-  }, [boardJson]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [boardJson, hydrated]);
 
-  // ── Load from Supabase + subscribe to realtime ─────────────────────────────
+  // ── Load from Supabase + subscribe realtime ───────────────────────────────
   useEffect(() => {
     if (!supabase) return;
-    let mounted = true;
+    let isMounted = true;
 
-    (async () => {
+    // Fallback: open gate after 4s even if Supabase is slow/unreachable
+    const gateTimeout = setTimeout(() => { if (isMounted) setHydrated(true); }, 4000);
+
+    const loadRemote = async () => {
       const { data, error } = await supabase
-        .from("board_state").select("state").eq("id", "main").maybeSingle();
-      if (!mounted) return;
-      if (error) { setSyncStatus("sync-error"); return; }
-      if (data?.state) { applyBoardState(data.state); setSyncStatus("live"); }
-      else {
-        await supabase.from("board_state").upsert({
-          id: "main", state: boardStateRef.current, updated_at: new Date().toISOString(),
-        });
+        .from("board_state")
+        .select("state, updated_at")
+        .eq("id", "main")
+        .maybeSingle();
+
+      if (!isMounted) return;
+      clearTimeout(gateTimeout);
+
+      if (error) { setSyncStatus("sync-error"); setHydrated(true); return; }
+
+      if (data?.state && Object.keys(data.state).length > 0) {
+        applyBoardState(data.state);
+        setSyncStatus("live");
+      } else {
+        // No remote state yet — just mark live, don't seed
         setSyncStatus("live");
       }
-    })();
+      setHydrated(true);
+    };
 
-    const channel = supabase.channel("milka-board")
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "board_state", filter: "id=eq.main" },
-        payload => {
-          const next = payload.new?.state;
-          if (!next) return;
-          const nextJson = JSON.stringify(next);
-          if (nextJson === lastRemoteJsonRef.current) return;
-          applyBoardState(next);
-          setSyncStatus("live");
-        }
-      )
-      .subscribe(s => { if (s === "SUBSCRIBED") setSyncStatus("live"); });
+    loadRemote();
 
-    return () => { mounted = false; supabase.removeChannel(channel); };
+    const channel = supabase
+      .channel("milka-board-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "board_state", filter: "id=eq.main" }, payload => {
+        const nextState = payload.new?.state;
+        if (!nextState) return;
+        const nextJson = JSON.stringify(nextState);
+        if (nextJson === lastRemoteJsonRef.current) return;
+        lastRemoteJsonRef.current = nextJson;
+        applyBoardState(nextState);
+        setSyncStatus("live");
+      })
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") setSyncStatus("live");
+      });
+
+    return () => {
+      isMounted = false;
+      clearTimeout(gateTimeout);
+      supabase.removeChannel(channel);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Beverages: load from Supabase + realtime ─────────────────────────────────
@@ -2042,85 +2308,32 @@ export default function App() {
     if (!supabase) return;
     let mounted = true;
 
-    (async () => {
+    const loadBevs = async () => {
       const { data, error } = await supabase
         .from("beverages")
         .select("id, category, name, notes, position")
         .order("position", { ascending: true });
-      if (!mounted || error) return;
-      if (data && data.length > 0) {
-        const byCat = cat => data
-          .filter(r => r.category === cat)
-          .map((r, i) => ({ id: r.id, name: r.name, notes: r.notes || "", position: r.position ?? i }));
-        const c = byCat("cocktail");
-        const s = byCat("spirit");
-        const b = byCat("beer");
-        setCocktails(c.length ? c : initCocktails);
-        setSpirits(s.length ? s : initSpirits);
-        setBeers(b);
-        writeLocalBeverages({ cocktails: c.length ? c : initCocktails, spirits: s.length ? s : initSpirits, beers: b });
-      }
-    })();
+      if (!mounted || error || !data || data.length === 0) return;
+      const byCat = cat => data
+        .filter(r => r.category === cat)
+        .map((r, i) => ({ id: r.id, name: r.name, notes: r.notes || "", position: r.position ?? i }));
+      const c = byCat("cocktail");
+      const s = byCat("spirit");
+      const b = byCat("beer");
+      if (c.length) setCocktails(c);
+      if (s.length) setSpirits(s);
+      if (b.length) setBeers(b);
+      writeLocalBeverages({ cocktails: c, spirits: s, beers: b });
+    };
+
+    loadBevs();
 
     const bevChannel = supabase.channel("milka-beverages")
-      .on("postgres_changes", { event: "*", schema: "public", table: "beverages" }, async () => {
-        const { data } = await supabase
-          .from("beverages")
-          .select("id, category, name, notes, position")
-          .order("position", { ascending: true });
-        if (!data || !mounted) return;
-        const byCat = cat => data
-          .filter(r => r.category === cat)
-          .map((r, i) => ({ id: r.id, name: r.name, notes: r.notes || "", position: r.position ?? i }));
-        const c = byCat("cocktail");
-        const s = byCat("spirit");
-        const b = byCat("beer");
-        setCocktails(c.length ? c : initCocktails);
-        setSpirits(s.length ? s : initSpirits);
-        setBeers(b);
-        writeLocalBeverages({ cocktails: c.length ? c : initCocktails, spirits: s.length ? s : initSpirits, beers: b });
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "beverages" }, loadBevs)
       .subscribe();
 
     return () => { mounted = false; supabase.removeChannel(bevChannel); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Save beverages to Supabase (called from AdminPanel) ──────────────────────
-  const saveBeverages = async ({ cocktails: newC, spirits: newS, beers: newB }) => {
-    setCocktails(newC);
-    setSpirits(newS);
-    setBeers(newB);
-    writeLocalBeverages({ cocktails: newC, spirits: newS, beers: newB });
-
-    if (!supabase) return;
-
-    // Build rows for all three categories
-    const rows = [
-      ...newC.map((item, i) => ({ category: "cocktail", name: item.name, notes: item.notes || "", position: i })),
-      ...newS.map((item, i) => ({ category: "spirit",   name: item.name, notes: item.notes || "", position: i })),
-      ...newB.map((item, i) => ({ category: "beer",     name: item.name, notes: item.notes || "", position: i })),
-    ];
-
-    // Delete all existing rows then insert fresh (simplest approach for menu sync)
-    await supabase.from("beverages").delete().in("category", ["cocktail", "spirit", "beer"]);
-    if (rows.length > 0) {
-      await supabase.from("beverages").insert(rows);
-    }
-  };
-
-  const archiveAndClear = async () => {
-    if (!supabase) return;
-    const label = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) + " · " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-    const activeTables = tables.filter(t => t.active || t.arrivedAt || t.resName || t.resTime);
-    await supabase.from("service_archive").insert([{ date: new Date().toISOString().slice(0, 10), label, state: { tables: activeTables, dishes } }]);
-    const cleared = tables.map(t => ({ ...t, active: false, arrivedAt: null, resName: "", resTime: "", guests: 0, seats: [], menuType: null, birthday: false, notes: "", restrictions: [], wineBottle: null }));
-    setTables(cleared);
-  };
-
-  const clearAll = () => {
-    const cleared = tables.map(t => ({ ...t, active: false, arrivedAt: null, resName: "", resTime: "", guests: 0, seats: [], menuType: null, birthday: false, notes: "", restrictions: [], wineBottle: null }));
-    setTables(cleared);
-  };
 
   const active   = tables.filter(t => t.active);
   const seated   = active.reduce((a, t) => a + t.guests, 0);
@@ -2129,93 +2342,97 @@ export default function App() {
   const syncLabel = syncStatus === "live" ? "SYNC" : syncStatus === "local-only" ? "LOCAL" : syncStatus === "connecting" ? "LINK" : "ERROR";
   const syncLive  = syncStatus === "live";
 
-  const Header = ({ modeLabel, showMenu, showSummary }) => (
+  const hProps = {
+    syncLabel, syncLive,
+    activeCount: active.length, reserved, seated,
+    onExit: switchMode,
+    onMenu: () => setAdminOpen(true),
+    onSummary: () => setSummaryOpen(true),
+    onArchive: () => setArchiveOpen(true),
+  };
+
+  // Gate 1: password wall — must authenticate before anything
+  if (!authed) return <GateScreen onPass={() => setAuthed(true)} />;
+
+  // Gate 2: hydration — wait for Supabase state before rendering
+  if (!hydrated) return (
     <div style={{
-      borderBottom: "1px solid #f0f0f0", padding: "10px 12px",
-      display: "flex", flexDirection: "column", gap: 10,
-      background: "#fff", position: "sticky", top: 0, zIndex: 50,
+      minHeight: "100vh", background: "#fff", display: "flex",
+      flexDirection: "column", alignItems: "center", justifyContent: "center",
+      fontFamily: FONT, gap: 24,
     }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 4, color: "#1a1a1a" }}>MILKA</span>
-          <span style={{ width: 1, height: 14, background: "#e8e8e8" }} />
-          <span style={{
-            fontSize: 10, letterSpacing: 3, fontWeight: 700, textTransform: "uppercase",
-            color: modeLabel === "admin" ? "#4b4b88" : modeLabel === "service" ? "#2f7a45" : "#1a1a1a",
-          }}>{modeLabel}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {showMenu && (
-            <button onClick={() => setAdminOpen(true)} style={{
-              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
-              border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
-            }}>MENU</button>
-          )}
-          {showSummary && (
-            <button onClick={() => setSummaryOpen(true)} style={{
-              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
-              border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
-            }}>SUMMARY</button>
-          )}
-          {showSummary && (
-            <button onClick={() => setArchiveOpen(true)} style={{
-              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
-              border: "1px solid #c8a06e", borderRadius: 999, cursor: "pointer", background: "#fdf8f0", color: "#8a6030",
-            }}>ARCHIVE</button>
-          )}
-          <span style={syncPillStyle(syncLive)}>{syncLabel}</span>
-          <button onClick={switchMode} style={{
-            fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
-            border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
-          }}>EXIT</button>
-        </div>
+      <GlobalStyle />
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: 6, color: "#1a1a1a", marginBottom: 6 }}>MILKA</div>
+        <div style={{ fontSize: 9, letterSpacing: 4, color: "#bbb" }}>CONNECTING…</div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={topStatChip}>{active.length} seated</span>
-        <span style={topStatChip}>{reserved} reserved</span>
-        <span style={topStatChip}>{seated} guests</span>
+      <div style={{ display: "flex", gap: 6 }}>
+        {[0,1,2].map(i => (
+          <div key={i} style={{
+            width: 5, height: 5, borderRadius: "50%", background: "#e0e0e0",
+            animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }} />
+        ))}
       </div>
+      <style>{`@keyframes pulse{0%,80%,100%{opacity:0.2;transform:scale(0.8)}40%{opacity:1;transform:scale(1)}}`}</style>
     </div>
   );
 
   if (!mode) return <LoginScreen onEnter={m => { changeMode(m); setSel(null); }} />;
 
+  // Display mode
   if (mode === "display") return (
-    <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT }}>
+    <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT, overflowX: "hidden", WebkitTextSizeAdjust: "100%" }}>
       <GlobalStyle />
-      <Header modeLabel="display" showMenu={false} showSummary={false} />
+      <Header modeLabel="DISPLAY" showSummary={false} showMenu={false} showArchive={false} {...hProps} />
       <DisplayBoard tables={tables} dishes={dishes} />
     </div>
   );
 
+  // Service + Admin modes
   return (
-    <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT }}>
+    <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT, overflowX: "hidden", WebkitTextSizeAdjust: "100%" }}>
       <GlobalStyle />
-      <Header modeLabel={mode} showMenu={mode === "admin"} showSummary={true} />
+
+      <Header
+        modeLabel={mode === "admin" ? "ADMIN" : "SERVICE"}
+        showSummary={true}
+        showMenu={mode === "admin"}
+        showArchive={mode === "admin"}
+        {...hProps}
+      />
 
       {sel === null ? (
-        <div style={{ padding: "20px 12px", maxWidth: 960, margin: "0 auto" }}>
+        <div style={{ padding: "20px 12px", maxWidth: 960, margin: "0 auto", overflowX: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-            {(mode === "service" ? tables.filter(t => t.active || t.resName || t.resTime) : tables).map(t => (
-              <Card key={t.id} table={t} mode={mode}
-                onClick={() => (t.active || (mode === "service" && (t.resName || t.resTime))) && setSel(t.id)}
+            {tables.map(t => (
+              <Card key={t.id} table={t}
+                mode={mode}
+                onClick={() => t.active && setSel(t.id)}
                 onSeat={() => seatTable(t.id)}
+                onUnseat={() => unseatTable(t.id)}
                 onClear={() => clear(t.id)}
                 onEditRes={() => mode === "admin" && setResModal(t.id)}
               />
             ))}
           </div>
         </div>
-      ) : selTable ? (
+      ) : (
         <Detail
-          table={selTable} dishes={dishes} wines={wines} cocktails={cocktails} spirits={spirits}
-          mode={mode} onBack={() => setSel(null)}
+          table={selTable}
+          dishes={dishes}
+          wines={wines}
+          cocktails={cocktails}
+          spirits={spirits}
+          beers={beers}
+          mode={mode}
+          onBack={() => setSel(null)}
           upd={(f, v) => upd(sel, f, v)}
           updSeat={(sid, f, v) => updSeat(sel, sid, f, v)}
-          setGuests={n => setGuestCount(sel, n)}
+          setGuests={n => setGuests(sel, n)}
           swapSeats={(aId, bId) => swapSeats(sel, aId, bId)}
         />
-      ) : null}
+      )}
 
       {mode === "admin" && resModal !== null && modalTable && (
         <ReservationModal table={modalTable} onSave={data => saveRes(resModal, data)} onClose={() => setResModal(null)} />
@@ -2225,7 +2442,8 @@ export default function App() {
           dishes={dishes} wines={wines} cocktails={cocktails} spirits={spirits} beers={beers}
           onUpdateDishes={setDishes} onUpdateWines={setWines}
           onSaveBeverages={saveBeverages}
-          onClose={() => setAdminOpen(false)} />
+          onClose={() => setAdminOpen(false)}
+        />
       )}
       {summaryOpen && (
         <SummaryModal tables={tables} dishes={dishes} onClose={() => setSummaryOpen(false)} />
@@ -2233,9 +2451,10 @@ export default function App() {
       {archiveOpen && (
         <ArchiveModal
           tables={tables} dishes={dishes}
-          onArchiveAndClear={archiveAndClear}
-          onClearAll={() => { clearAll(); setArchiveOpen(false); }}
-          onClose={() => setArchiveOpen(false)} />
+          onArchiveAndClear={archiveAndClearAll}
+          onClearAll={clearAll}
+          onClose={() => setArchiveOpen(false)}
+        />
       )}
     </div>
   );
