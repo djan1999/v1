@@ -2097,14 +2097,18 @@ export default function App() {
   const [syncStatus,   setSyncStatus]   = useState(hasSupabaseConfig ? "connecting" : "local-only");
   // Access gate: checked once at init against 12h TTL
   const [authed,       setAuthed]       = useState(() => readAccess());
-  // Hydration gate: holds render until Supabase initial fetch resolves (or 4s timeout)
-  const [hydrated,     setHydrated]     = useState(!hasSupabaseConfig);
+  // Hydration: if we have local data, render immediately and sync quietly in background
+  const [hydrated,     setHydrated]     = useState(() => {
+    if (!hasSupabaseConfig) return true;
+    // If localStorage has state, render immediately — Supabase will update quietly
+    try { return !!localStorage.getItem(STORAGE_KEY); } catch { return false; }
+  });
 
   const applyingRemoteRef  = useRef(false);
   const lastRemoteJsonRef  = useRef("");
   const saveTimerRef       = useRef(null);
 
-  const boardState = { tables, dishes, wines, cocktails, spirits, beers };
+  const boardState = { tables, dishes, cocktails, spirits, beers };
   const boardJson  = JSON.stringify(boardState);
   const boardStateRef = useRef(boardState);
   boardStateRef.current = boardState;
@@ -2115,7 +2119,7 @@ export default function App() {
     lastRemoteJsonRef.current = JSON.stringify(payload);
     setTables(Array.isArray(payload.tables) ? payload.tables.map(sanitizeTable) : initTables);
     setDishes(Array.isArray(payload.dishes)    ? payload.dishes    : initDishes);
-    setWines(Array.isArray(payload.wines)      ? payload.wines     : initWines);
+    // wines intentionally excluded — loaded separately from the wines table
     setCocktails(Array.isArray(payload.cocktails) ? payload.cocktails : initCocktails);
     setSpirits(Array.isArray(payload.spirits)  ? payload.spirits   : initSpirits);
     setBeers(Array.isArray(payload.beers)      ? payload.beers     : initBeers);
@@ -2244,7 +2248,7 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
       setSyncStatus(error ? "sync-error" : "live");
-    }, 400);
+    }, 200);
 
     return () => clearTimeout(saveTimerRef.current);
   }, [boardJson, hydrated]);
@@ -2254,8 +2258,8 @@ export default function App() {
     if (!supabase) return;
     let isMounted = true;
 
-    // Fallback: open gate after 4s even if Supabase is slow/unreachable
-    const gateTimeout = setTimeout(() => { if (isMounted) setHydrated(true); }, 4000);
+    // Fallback: open gate after 800ms for truly cold starts (no localStorage)
+    const gateTimeout = setTimeout(() => { if (isMounted) setHydrated(true); }, 800);
 
     const loadRemote = async () => {
       const { data, error } = await supabase
@@ -2333,6 +2337,38 @@ export default function App() {
       .subscribe();
 
     return () => { mounted = false; supabase.removeChannel(bevChannel); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Wines: load from Supabase wines table + realtime ─────────────────────────
+  useEffect(() => {
+    if (!supabase) return;
+    let mounted = true;
+
+    const loadWines = async () => {
+      const { data, error } = await supabase
+        .from("wines")
+        .select("id, name, wine_name, producer, vintage, region, country, by_glass")
+        .order("name", { ascending: true });
+      if (!mounted || error || !data || data.length === 0) return;
+      const mapped = data.map(r => ({
+        id:       r.id,
+        name:     r.wine_name || r.name,
+        producer: r.producer || "",
+        vintage:  r.vintage  || "",
+        region:   r.region   || "",
+        country:  r.country  || "",
+        byGlass:  r.by_glass ?? false,
+      }));
+      setWines(mapped);
+    };
+
+    loadWines();
+
+    const wineChannel = supabase.channel("milka-wines")
+      .on("postgres_changes", { event: "*", schema: "public", table: "wines" }, loadWines)
+      .subscribe();
+
+    return () => { mounted = false; supabase.removeChannel(wineChannel); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const active   = tables.filter(t => t.active);
