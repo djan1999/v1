@@ -1,229 +1,207 @@
 /**
- * Milka Wine Sync — Vercel Cron Function
+ * Milka Full Menu Sync — Vercel Cron Function
  * Runs nightly at 02:00 UTC (configured in vercel.json)
  *
- * Scrapes vinska-karta.hotelmilka.si by country, parses the wine tables,
- * and upserts into the Supabase `wines` table.
+ * Scrapes vinska-karta.hotelmilka.si and syncs:
+ *   → wines table      : all wines by country
+ *   → beverages table  : cocktails, beers, and all spirits subcategories
  *
- * Also callable manually:
- *   GET /api/sync-wines?secret=YOUR_CRON_SECRET   → runs sync
- *   GET /api/sync-wines?secret=...&dry=true        → parse only, no DB write
+ * Manual trigger:
+ *   GET /api/sync-wines?secret=YOUR_CRON_SECRET        → full sync
+ *   GET /api/sync-wines?secret=...&dry=true            → parse only, no DB write
  */
 
 import { createClient } from "@supabase/supabase-js";
 
 const BASE = "https://vinska-karta.hotelmilka.si";
 
-// Countries to scrape (add more if the site expands)
-const COUNTRIES = [
-  { param: "Slovenija", label: "SI" },
-  { param: "Avstrija",  label: "AT" },
-  { param: "Italija",   label: "IT" },
-  { param: "Francija",  label: "FR" },
-  { param: "Hrva%C5%A1ka", label: "HR" },
+const WINE_COUNTRIES = [
+  { param: "Slovenija",     label: "SI" },
+  { param: "Avstrija",      label: "AT" },
+  { param: "Italija",       label: "IT" },
+  { param: "Francija",      label: "FR" },
+  { param: "Hrva%C5%A1ka",  label: "HR" },
 ];
 
-// ─── HTML parser ──────────────────────────────────────────────────────────────
-// No external deps — parses the wine tables out of raw HTML using regex.
-// Each row: [producer, name, vintage, region, size, price]
-// "By glass" entries have a number prefix like "01." on the producer cell.
+const BEVERAGE_PAGES = [
+  { url: `${BASE}/category/cocktails/`,   category: "cocktail", label: "Cocktail"        },
+  { url: `${BASE}/category/pivo/`,        category: "beer",     label: "Beer"            },
+  { url: `${BASE}/category/viski`,        category: "spirit",   label: "Whisky"          },
+  { url: `${BASE}/category/cognac`,       category: "spirit",   label: "Cognac / Brandy" },
+  { url: `${BASE}/category/rum`,          category: "spirit",   label: "Rum"             },
+  { url: `${BASE}/category/agave`,        category: "spirit",   label: "Agave"           },
+  { url: `${BASE}/category/gin`,          category: "spirit",   label: "Gin"             },
+  { url: `${BASE}/category/vodka`,        category: "spirit",   label: "Vodka"           },
+  { url: `${BASE}/category/other-ostalo`, category: "spirit",   label: "Other"           },
+  { url: `${BASE}/category/likerji`,      category: "spirit",   label: "Liqueur"         },
+];
+
+async function fetchHtml(url) {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; MilkaSyncBot/1.0)", Accept: "text/html" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+function extractCells(row) {
+  const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+  const cells = [];
+  let m;
+  while ((m = tdRe.exec(row)) !== null) {
+    cells.push(
+      m[1].replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&nbsp;/g, " ").replace(/&#039;/g, "'").replace(/&quot;/g, '"')
+        .trim()
+    );
+  }
+  return cells;
+}
 
 function parseWinesFromHtml(html, countryLabel) {
   const wines = [];
-
-  // Find all <table> blocks
   const tableRe = /<table[\s\S]*?<\/table>/gi;
-  const tableMatches = html.match(tableRe) || [];
-
-  for (const table of tableMatches) {
-    // Find all <tr> rows
-    const rowRe = /<tr[\s\S]*?<\/tr>/gi;
-    const rows = table.match(rowRe) || [];
-
-    for (const row of rows) {
-      // Extract <td> cell content, strip all tags
-      const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-      const cells = [];
-      let m;
-      while ((m = tdRe.exec(row)) !== null) {
-        // Strip HTML tags and decode basic entities
-        const text = m[1]
-          .replace(/<[^>]+>/g, "")
-          .replace(/&amp;/g, "&")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&nbsp;/g, " ")
-          .replace(/&#039;/g, "'")
-          .replace(/&quot;/g, '"')
-          .trim();
-        cells.push(text);
-      }
-
-      // Expect at least 5 cells: producer, name, vintage(?), region, size, price
+  for (const table of html.match(tableRe) || []) {
+    for (const row of table.match(/<tr[\s\S]*?<\/tr>/gi) || []) {
+      const cells = extractCells(row);
       if (cells.length < 5) continue;
-
       let [rawProducer, rawName, vintage, region] = cells;
-
-      // Skip header-like rows
       if (!rawProducer || rawProducer.length > 80) continue;
       if (rawProducer.toLowerCase().includes("producer")) continue;
-
-      // Detect by-glass: numbered prefix like "01." "17."
-      const byGlassMatch = rawProducer.match(/^(\d{2})\.\s*/);
-      const byGlass = !!byGlassMatch;
+      const byGlass = /^\d{2}\.\s*/.test(rawProducer);
       const producer = rawProducer.replace(/^\d{2}\.\s*/, "").trim();
-
-      // Clean eco/natural tags from name
-      const name = rawName
-        .replace(/natural/gi, "")
-        .replace(/eco/gi, "")
-        .replace(/\s{2,}/g, " ")
-        .trim();
-
+      const name = rawName.replace(/natural/gi, "").replace(/eco/gi, "").replace(/\s{2,}/g, " ").trim();
       if (!producer || !name) continue;
-
-      // Vintage: keep "NV" as-is, blank if empty
       const vintageClean = (vintage || "").trim() || "NV";
-
-      // Build a stable unique key (used for upsert dedup)
-      const key = `${producer}|${name}|${vintageClean}|${countryLabel}`
-        .toLowerCase()
-        .replace(/\s/g, "_");
-
-      wines.push({
-        key,
-        producer,
-        name: `${producer} – ${name}`,
-        wine_name: name,
-        vintage: vintageClean,
-        region: `${(region || "").trim()}, ${countryLabel}`,
-        country: countryLabel,
-        by_glass: byGlass,
-      });
+      const key = `${producer}|${name}|${vintageClean}|${countryLabel}`.toLowerCase().replace(/\s/g, "_");
+      wines.push({ key, producer, name: `${producer} – ${name}`, wine_name: name, vintage: vintageClean, region: `${(region || "").trim()}, ${countryLabel}`, country: countryLabel, by_glass: byGlass });
     }
   }
-
   return wines;
 }
 
-// ─── Fetch one country page ───────────────────────────────────────────────────
-async function fetchCountry({ param, label }) {
-  const url = `${BASE}/category/vino/?drzava=${param}`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; MilkaSyncBot/1.0)",
-      Accept: "text/html",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!res.ok) {
-    console.warn(`[sync-wines] ${label} → HTTP ${res.status}, skipping`);
-    return [];
+function parseBeveragesFromHtml(html, category, subcategoryLabel) {
+  const beverages = [];
+  const tableRe = /<table[\s\S]*?<\/table>/gi;
+  for (const table of html.match(tableRe) || []) {
+    for (const row of table.match(/<tr[\s\S]*?<\/tr>/gi) || []) {
+      const cells = extractCells(row);
+      if (cells.length < 2) continue;
+      const name = cells[0];
+      if (!name || name.length > 120) continue;
+      if (["name", "ime", "naziv"].includes(name.toLowerCase())) continue;
+      let displayName, notes;
+      if (category === "spirit") {
+        const producer = cells[1] || "";
+        const region   = cells[3] || "";
+        displayName = producer ? `${name} – ${producer}` : name;
+        notes = [subcategoryLabel, region].filter(Boolean).join(", ");
+      } else {
+        displayName = name;
+        notes = cells[1] || "";
+      }
+      beverages.push({ name: displayName, notes, category });
+    }
   }
-
-  const html = await res.text();
-  const wines = parseWinesFromHtml(html, label);
-  console.log(`[sync-wines] ${label} → ${wines.length} wines parsed`);
-  return wines;
+  return beverages;
 }
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
+async function fetchWineCountry({ param, label }) {
+  try {
+    const html = await fetchHtml(`${BASE}/category/vino/?drzava=${param}`);
+    const wines = parseWinesFromHtml(html, label);
+    console.log(`[sync] wines ${label} → ${wines.length}`);
+    return wines;
+  } catch (e) { console.warn(`[sync] wines ${label} failed: ${e.message}`); return []; }
+}
+
+async function fetchBeveragePage({ url, category, label }) {
+  try {
+    const html = await fetchHtml(url);
+    const items = parseBeveragesFromHtml(html, category, label);
+    console.log(`[sync] ${label} → ${items.length}`);
+    return items;
+  } catch (e) { console.warn(`[sync] ${label} failed: ${e.message}`); return []; }
+}
+
 export default async function handler(req, res) {
-  // Security: require secret header or query param
-  const secret = process.env.CRON_SECRET;
-  const provided =
-    req.headers["x-cron-secret"] ||
+  const secret   = process.env.CRON_SECRET;
+  const provided = req.headers["x-cron-secret"] ||
     new URL(req.url, "http://localhost").searchParams.get("secret");
+  if (secret && provided !== secret) return res.status(401).json({ error: "Unauthorized" });
 
-  if (secret && provided !== secret) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  const dry =
-    new URL(req.url, "http://localhost").searchParams.get("dry") === "true";
+  const dry = new URL(req.url, "http://localhost").searchParams.get("dry") === "true";
 
   try {
-    // ── Scrape all countries in parallel ──────────────────────────────────────
-    const results = await Promise.allSettled(COUNTRIES.map(fetchCountry));
+    const [wineResults, bevResults] = await Promise.all([
+      Promise.allSettled(WINE_COUNTRIES.map(fetchWineCountry)),
+      Promise.allSettled(BEVERAGE_PAGES.map(fetchBeveragePage)),
+    ]);
 
-    const allWines = results.flatMap((r) =>
-      r.status === "fulfilled" ? r.value : []
-    );
+    const allWines     = wineResults.flatMap(r => r.status === "fulfilled" ? r.value : []);
+    const allBeverages = bevResults.flatMap(r  => r.status === "fulfilled" ? r.value : []);
 
-    if (allWines.length === 0) {
-      return res.status(200).json({
-        ok: false,
-        message: "No wines scraped — site may be down or HTML changed",
-      });
-    }
-
-    const byGlassCount = allWines.filter((w) => w.by_glass).length;
-    console.log(
-      `[sync-wines] Total: ${allWines.length} wines, ${byGlassCount} by-glass`
-    );
+    const byGlassCount  = allWines.filter(w => w.by_glass).length;
+    const cocktailCount = allBeverages.filter(b => b.category === "cocktail").length;
+    const beerCount     = allBeverages.filter(b => b.category === "beer").length;
+    const spiritCount   = allBeverages.filter(b => b.category === "spirit").length;
 
     if (dry) {
       return res.status(200).json({
-        ok: true,
-        dry: true,
-        count: allWines.length,
-        byGlass: byGlassCount,
-        sample: allWines.slice(0, 5),
+        ok: true, dry: true,
+        wines: allWines.length, byGlass: byGlassCount,
+        cocktails: cocktailCount, beers: beerCount, spirits: spiritCount,
+        sampleCocktail: allBeverages.find(b => b.category === "cocktail"),
+        sampleSpirit:   allBeverages.find(b => b.category === "spirit"),
+        sampleBeer:     allBeverages.find(b => b.category === "beer"),
       });
     }
 
-    // ── Upsert to Supabase ────────────────────────────────────────────────────
-    const supabase = createClient(
-      process.env.VITE_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY // service key for write access
-    );
+    const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-    // Deduplicate by key (same wine can appear in multiple scrape passes)
-    const seen = new Set();
-    const uniqueWines = allWines.filter(w => {
-      if (seen.has(w.key)) return false;
-      seen.add(w.key);
-      return true;
-    });
-    console.log(`[sync-wines] After dedup: ${uniqueWines.length} unique wines`);
-
-    // Upsert in batches of 200 to avoid request size limits
-    const BATCH = 200;
-    let upserted = 0;
-
-    for (let i = 0; i < uniqueWines.length; i += BATCH) {
-      const batch = uniqueWines.slice(i, i + BATCH);
-      const { error } = await supabase
-        .from("wines")
-        .upsert(batch, { onConflict: "key" });
-
-      if (error) throw error;
-      upserted += batch.length;
+    // Sync wines
+    let winesUpserted = 0;
+    if (allWines.length > 0) {
+      const seen = new Set();
+      const uniqueWines = allWines.filter(w => { if (seen.has(w.key)) return false; seen.add(w.key); return true; });
+      const BATCH = 200;
+      for (let i = 0; i < uniqueWines.length; i += BATCH) {
+        const { error } = await supabase.from("wines").upsert(uniqueWines.slice(i, i + BATCH), { onConflict: "key" });
+        if (error) throw error;
+        winesUpserted += uniqueWines.slice(i, i + BATCH).length;
+      }
+      const freshKeys = uniqueWines.map(w => w.key);
+      await supabase.from("wines").delete().not("key", "in", `(${freshKeys.map(k => `"${k}"`).join(",")})`);
     }
 
-    // Remove wines that no longer exist on the site
-    // Strategy: delete any key NOT in the freshly scraped set
-    const freshKeys = uniqueWines.map((w) => w.key);
-    const { error: deleteError } = await supabase
-      .from("wines")
-      .delete()
-      .not("key", "in", `(${freshKeys.map((k) => `"${k}"`).join(",")})`);
-
-    if (deleteError) {
-      console.warn("[sync-wines] Cleanup delete failed:", deleteError.message);
+    // Sync beverages — replace all 3 categories fresh every run
+    let beveragesUpserted = 0;
+    if (allBeverages.length > 0) {
+      const catCounters = {};
+      const rows = allBeverages.map(b => {
+        catCounters[b.category] = (catCounters[b.category] || 0);
+        return { category: b.category, name: b.name, notes: b.notes || "", position: catCounters[b.category]++ };
+      });
+      await supabase.from("beverages").delete().in("category", ["cocktail", "spirit", "beer"]);
+      const BATCH = 200;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const { error } = await supabase.from("beverages").insert(rows.slice(i, i + BATCH));
+        if (error) throw error;
+        beveragesUpserted += rows.slice(i, i + BATCH).length;
+      }
     }
-
-    console.log(`[sync-wines] Upserted ${upserted} wines`);
 
     return res.status(200).json({
       ok: true,
-      count: upserted,
-      byGlass: byGlassCount,
+      wines: winesUpserted, byGlass: byGlassCount,
+      cocktails: cocktailCount, beers: beerCount, spirits: spiritCount,
       timestamp: new Date().toISOString(),
     });
+
   } catch (err) {
-    console.error("[sync-wines] Error:", err);
+    console.error("[sync] Error:", err);
     return res.status(500).json({ ok: false, error: err.message });
   }
 }
