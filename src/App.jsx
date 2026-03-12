@@ -5,18 +5,7 @@ const FONT = "'Roboto Mono', monospace";
 const MOBILE_SAFE_INPUT_SIZE = 16;
 
 // ── Wine DB ───────────────────────────────────────────────────────────────────
-const initWines = [
-  { id:1,  name:"Lunar",              producer:"Movia",             vintage:"2020", byGlass:true  },
-  { id:2,  name:"Rebula Selections",  producer:"Edi Simčič",        vintage:"2021", byGlass:true  },
-  { id:3,  name:"Tocai Friulano",     producer:"Radikon",           vintage:"2018", byGlass:false },
-  { id:4,  name:"Malvazija",          producer:"Rojac",             vintage:"2022", byGlass:true  },
-  { id:5,  name:"Blaufränkisch Res.", producer:"Moric",             vintage:"2019", byGlass:false },
-  { id:6,  name:"Pinot Noir",         producer:"Edi Simčič",        vintage:"2020", byGlass:true  },
-  { id:7,  name:"Jakot",              producer:"Gravner",           vintage:"2015", byGlass:false },
-  { id:8,  name:"Sauvignon Blanc",    producer:"Verus",             vintage:"2023", byGlass:true  },
-  { id:9,  name:"Ribolla Gialla",     producer:"Damijan Podversič", vintage:"2017", byGlass:false },
-  { id:10, name:"Cviček",             producer:"Kogl",              vintage:"2022", byGlass:true  },
-];
+const initWines = [];
 
 // ── Initial extra dishes ──────────────────────────────────────────────────────
 const initDishes = [
@@ -93,19 +82,19 @@ const fmt = d => `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes(
 
 const initTables = Array.from({ length: 10 }, (_, i) => ({
   id: i + 1,
-  active: i < 4,
-  guests: [4,2,6,3,2,2,2,2,2,2][i],
-  resName:    ["Kovač","Smith","Bianchi","","","","","","",""][i],
-  resTime:    ["19:00","18:30","18:00","","","","","","",""][i],
-  guestType:  ["hotel","outside","hotel","","","","","","",""][i],
-  room:       ["23","","12","","","","","","",""][i],
-  arrivedAt:  i < 3 ? fmt(new Date(Date.now() - [12,34,5][i] * 60000)) : null,
-  menuType:   ["Long","Short","Long","","","","","","",""][i],
+  active: false,
+  guests: 2,
+  resName: "",
+  resTime: "",
+  guestType: "",
+  room: "",
+  arrivedAt: null,
+  menuType: "",
   bottleWine: null,
-  restrictions: i === 1 ? [{ pos: null, note: "no gluten" }, { pos: null, note: "vegetarian" }] : [],
-  birthday: i === 2,
-  notes: i === 0 ? "VIP — slow pace" : "",
-  seats: makeSeats([4,2,6,3,2,2,2,2,2,2][i]),
+  restrictions: [],
+  birthday: false,
+  notes: "",
+  seats: makeSeats(2),
 }));
 
 // ── Sanitize a table loaded from storage/Supabase to fill in any missing fields
@@ -830,7 +819,7 @@ function ReservationModal({ table, onSave, onClose }) {
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────────
-function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
+function Card({ table, mode, onClick, onSeat, onClear, onEditRes, onUnseat }) {
   const hasRes = table.resName || table.resTime;
   const menuLabel = table.menuType ? `${table.menuType} menu` : null;
   return (
@@ -893,11 +882,17 @@ function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
             border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444",
           }}>{hasRes ? "edit" : "reserve"}</button>
         )}
-        {!table.active && (mode === "admin" || mode === "service") && (
+        {!table.active && mode === "admin" && (
           <button onClick={onSeat} style={{
             fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
             border: "1px solid #cce8cc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#70b870",
           }}>seat</button>
+        )}
+        {table.active && mode === "admin" && (
+          <button onClick={onUnseat} style={{
+            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
+            border: "1px solid #f0d6a8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#9a6a18",
+          }}>unseat</button>
         )}
         {table.active && (
           <button onClick={onClear} style={{
@@ -1598,6 +1593,93 @@ function LoginScreen({ onEnter }) {
   );
 }
 
+// ── Summary Modal ─────────────────────────────────────────────────────────────
+function SummaryModal({ tables, onClose }) {
+  const isMobile = useIsMobile(700);
+  const visibleTables = (tables || []).filter(t =>
+    t.active ||
+    t.resName || t.resTime || t.menuType || t.notes || t.bottleWine ||
+    (Array.isArray(t.restrictions) && t.restrictions.length > 0) ||
+    (Array.isArray(t.seats) && t.seats.some(s =>
+      (Array.isArray(s.glasses) && s.glasses.length) ||
+      (Array.isArray(s.cocktails) && s.cocktails.length) ||
+      (Array.isArray(s.spirits) && s.spirits.length) ||
+      s.pairing ||
+      (s.extras && Object.values(s.extras).some(ex => ex?.ordered))
+    ))
+  );
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(255,255,255,0.92)",
+      backdropFilter: "blur(4px)", zIndex: 700,
+      display: "flex", alignItems: "flex-end", justifyContent: "center",
+    }} onClick={onClose}>
+      <div style={{
+        background: "#fff", borderTop: "1px solid #e8e8e8",
+        borderRadius: "12px 12px 0 0",
+        width: "100%", maxWidth: 900, maxHeight: "94vh", overflow: "hidden",
+        boxShadow: "0 -4px 40px rgba(0,0,0,0.10)", display: "flex", flexDirection: "column",
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "#e0e0e0", margin: "12px auto 0" }} />
+        <div style={{ padding: isMobile ? "16px" : "20px 24px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: FONT, fontSize: 10, letterSpacing: 3, color: "#666", marginBottom: 6 }}>SERVICE SUMMARY</div>
+            <div style={{ fontFamily: FONT, fontSize: 16, color: "#1a1a1a" }}>{visibleTables.length} table{visibleTables.length === 1 ? "" : "s"}</div>
+          </div>
+          <button onClick={onClose} style={{
+            fontFamily: FONT, fontSize: 10, letterSpacing: 2, padding: "8px 12px",
+            border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
+          }}>CLOSE</button>
+        </div>
+        <div style={{ overflowY: "auto", padding: isMobile ? "16px" : "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {visibleTables.length === 0 && <div style={{ fontFamily: FONT, fontSize: 12, color: "#666" }}>No service data yet.</div>}
+          {visibleTables.map(table => (
+            <div key={table.id} style={{ border: "1px solid #ececec", borderRadius: 10, padding: isMobile ? "14px" : "16px", background: "#fff" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontFamily: FONT, fontSize: 10, letterSpacing: 3, color: "#666", marginBottom: 6 }}>TABLE {String(table.id).padStart(2, "0")}</div>
+                  <div style={{ fontFamily: FONT, fontSize: 14, color: "#1a1a1a" }}>{table.resName || "No name"}{table.resTime ? ` · ${table.resTime}` : ""}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <span style={{ ...topStatChip, padding: "4px 8px" }}>{table.guests} guests</span>
+                  {table.menuType && <span style={{ ...topStatChip, padding: "4px 8px" }}>{table.menuType}</span>}
+                  <span style={{ ...topStatChip, padding: "4px 8px", borderColor: table.active ? "#9bd0aa" : "#e8d8b8", background: table.active ? "#ecf8ef" : "#fff8ea", color: table.active ? "#2f7a45" : "#9a6a18" }}>{table.active ? "SEATED" : "RESERVED"}</span>
+                </div>
+              </div>
+              {table.bottleWine && <div style={{ marginBottom: 10, fontFamily: FONT, fontSize: 12, color: "#1a1a1a" }}><strong>Bottle:</strong> {table.bottleWine.name} · {table.bottleWine.producer} · {table.bottleWine.vintage}</div>}
+              {table.notes && <div style={{ marginBottom: 10, fontFamily: FONT, fontSize: 12, color: "#555", fontStyle: "italic" }}>{table.notes}</div>}
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+                {(table.seats || []).map(seat => {
+                  const restrictions = (table.restrictions || []).filter(r => r.pos === seat.id);
+                  const extras = Object.entries(seat.extras || {}).filter(([, ex]) => ex?.ordered).map(([dishId, ex]) => ({ dishId: Number(dishId), pairing: ex.pairing }));
+                  const hasDrinks = (seat.glasses?.length || seat.cocktails?.length || seat.spirits?.length);
+                  const hasAny = hasDrinks || seat.pairing || restrictions.length || extras.length;
+                  return (
+                    <div key={seat.id} style={{ border: "1px solid #efefef", borderRadius: 8, padding: "12px", background: "#fcfcfc" }}>
+                      <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 700, color: "#1a1a1a", marginBottom: 8 }}>P{seat.id}</div>
+                      {!hasAny ? <div style={{ fontFamily: FONT, fontSize: 11, color: "#777" }}>No data</div> : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {seat.pairing && <div style={{ fontFamily: FONT, fontSize: 11, color: "#1a1a1a" }}><strong>Pairing:</strong> {seat.pairing}</div>}
+                          {seat.glasses?.map((w, i) => <div key={`g-${i}`} style={{ fontFamily: FONT, fontSize: 11, color: "#1a1a1a" }}><strong>Glass:</strong> {w?.name} · {w?.producer} · {w?.vintage}</div>)}
+                          {seat.cocktails?.map((d, i) => <div key={`c-${i}`} style={{ fontFamily: FONT, fontSize: 11, color: "#1a1a1a" }}><strong>Cocktail:</strong> {d?.name}{d?.notes ? ` · ${d.notes}` : ""}</div>)}
+                          {seat.spirits?.map((d, i) => <div key={`s-${i}`} style={{ fontFamily: FONT, fontSize: 11, color: "#1a1a1a" }}><strong>Spirit:</strong> {d?.name}{d?.notes ? ` · ${d.notes}` : ""}</div>)}
+                          {restrictions.length > 0 && <div style={{ fontFamily: FONT, fontSize: 11, color: "#b04040" }}><strong>Restrictions:</strong> {restrictions.map(r => r.note).join(", ")}</div>}
+                          {extras.length > 0 && <div style={{ fontFamily: FONT, fontSize: 11, color: "#2a6a2a" }}><strong>Extras:</strong> {extras.map(ex => `Dish ${ex.dishId}${ex.pairing && ex.pairing !== "—" ? ` · ${ex.pairing}` : ""}`).join(", ")}</div>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const initialState = readLocalBoardState() || defaultBoardState();
@@ -1615,6 +1697,7 @@ export default function App() {
   const [sel,        setSel]        = useState(null);
   const [resModal,   setResModal]   = useState(null);
   const [adminOpen,  setAdminOpen]  = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState(hasSupabaseConfig ? "connecting" : "local-only");
 
   const applyingRemoteRef = useRef(false);
@@ -1659,6 +1742,13 @@ export default function App() {
     setTables(p => p.map(t =>
       t.id !== id ? t : { ...t, active: true, arrivedAt: now, seats: makeSeats(t.guests, t.seats) }
     ));
+  };
+  const unseatTable = id => {
+    if (!window.confirm("Unseat this table and return it to reserved state?")) return;
+    setTables(p => p.map(t =>
+      t.id !== id ? t : { ...t, active: false, arrivedAt: null }
+    ));
+    if (sel === id) setSel(null);
   };
   const clear = id => {
     if (!window.confirm("Clear this table and reset all details?")) return;
@@ -1779,6 +1869,10 @@ export default function App() {
           }}>{modeLabel}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button onClick={() => setSummaryOpen(true)} style={{
+              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
+              border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
+            }}>SUMMARY</button>
           {showMenu && (
             <button onClick={() => setAdminOpen(true)} style={{
               fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
@@ -1823,6 +1917,7 @@ export default function App() {
                 onClick={() => (t.active || (mode === "service" && (t.resName || t.resTime))) && setSel(t.id)}
                 onSeat={() => seatTable(t.id)}
                 onClear={() => clear(t.id)}
+                onUnseat={() => unseatTable(t.id)}
                 onEditRes={() => mode === "admin" && setResModal(t.id)}
               />
             ))}
@@ -1842,6 +1937,7 @@ export default function App() {
       {mode === "admin" && resModal !== null && modalTable && (
         <ReservationModal table={modalTable} onSave={data => saveRes(resModal, data)} onClose={() => setResModal(null)} />
       )}
+      {summaryOpen && <SummaryModal tables={tables} onClose={() => setSummaryOpen(false)} />}
       {adminOpen && (
         <AdminPanel
           dishes={dishes} wines={wines} cocktails={cocktails} spirits={spirits}
