@@ -2179,6 +2179,7 @@ export default function App() {
   });
   const [sel,          setSel]          = useState(null);
   const [resModal,     setResModal]     = useState(null);
+  const [resModalPresetTime, setResModalPresetTime] = useState(null);
   const [adminOpen,    setAdminOpen]    = useState(false);
   const [summaryOpen,  setSummaryOpen]  = useState(false);
   const [archiveOpen,  setArchiveOpen]  = useState(false);
@@ -2529,7 +2530,7 @@ export default function App() {
               onSeat: () => seatTable(t.id),
               onUnseat: () => unseatTable(t.id),
               onClear: () => clear(t.id),
-              onEditRes: () => mode === "admin" && setResModal(t.id),
+              onEditRes: () => { if (mode === "admin") { setResModalPresetTime(null); setResModal(t.id); } },
             });
 
             // Group tables by sitting time
@@ -2573,15 +2574,30 @@ export default function App() {
                       {/* Cards — max 4, fixed grid */}
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
                         {rowTables.slice(0, 4).map(t => <Card {...cardProps(t)} />)}
-                        {/* Empty slot placeholders for admin */}
-                        {mode === "admin" && rowTables.length < 4 && Array.from({ length: 4 - rowTables.length }).map((_, i) => (
-                          <div key={`empty-${i}`} style={{
-                            border: "1px dashed #ebebeb", borderRadius: 4, minHeight: 190,
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                          }}>
-                            <span style={{ fontFamily: FONT, fontSize: 9, color: "#ddd", letterSpacing: 2 }}>OPEN</span>
-                          </div>
-                        ))}
+                        {/* Empty slot placeholders for admin — clickable to add reservation */}
+                        {mode === "admin" && rowTables.length < 4 && Array.from({ length: 4 - rowTables.length }).map((_, i) => {
+                          // Find next table with no reservation and not active
+                          const usedIds = visibleTables.map(t => t.id);
+                          const freeTable = tables.find(t => !t.active && !t.resName && !t.resTime);
+                          return (
+                            <div key={`empty-${time}-${i}`}
+                              onClick={() => { if (freeTable) { setResModalPresetTime(time); setResModal(freeTable.id); } }}
+                              style={{
+                                border: "1px dashed #e0e0e0", borderRadius: 4, minHeight: 190,
+                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                                gap: 8, cursor: freeTable ? "pointer" : "default",
+                                transition: "border-color 0.15s, background 0.15s",
+                              }}
+                              onMouseEnter={e => { if (freeTable) { e.currentTarget.style.borderColor = "#c8a06e"; e.currentTarget.style.background = "#fffdf8"; }}}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = "#e0e0e0"; e.currentTarget.style.background = ""; }}
+                            >
+                              <span style={{ fontSize: 18, color: "#ddd" }}>+</span>
+                              <span style={{ fontFamily: FONT, fontSize: 9, color: "#ccc", letterSpacing: 2 }}>
+                                {freeTable ? "ADD RES" : "FULL"}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -2634,7 +2650,11 @@ export default function App() {
       )}
 
       {mode === "admin" && resModal !== null && modalTable && (
-        <ReservationModal table={modalTable} onSave={data => saveRes(resModal, data)} onClose={() => setResModal(null)} />
+        <ReservationModal
+          table={{ ...modalTable, resTime: resModalPresetTime || modalTable.resTime }}
+          onSave={data => saveRes(resModal, data)}
+          onClose={() => { setResModal(null); setResModalPresetTime(null); }}
+        />
       )}
       {adminOpen && (
         <AdminPanel
