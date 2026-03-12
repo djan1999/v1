@@ -179,12 +179,21 @@ export default async function handler(req, res) {
       process.env.SUPABASE_SERVICE_KEY // service key for write access
     );
 
+    // Deduplicate by key (same wine can appear in multiple scrape passes)
+    const seen = new Set();
+    const uniqueWines = allWines.filter(w => {
+      if (seen.has(w.key)) return false;
+      seen.add(w.key);
+      return true;
+    });
+    console.log(`[sync-wines] After dedup: ${uniqueWines.length} unique wines`);
+
     // Upsert in batches of 200 to avoid request size limits
     const BATCH = 200;
     let upserted = 0;
 
-    for (let i = 0; i < allWines.length; i += BATCH) {
-      const batch = allWines.slice(i, i + BATCH);
+    for (let i = 0; i < uniqueWines.length; i += BATCH) {
+      const batch = uniqueWines.slice(i, i + BATCH);
       const { error } = await supabase
         .from("wines")
         .upsert(batch, { onConflict: "key" });
@@ -195,7 +204,7 @@ export default async function handler(req, res) {
 
     // Remove wines that no longer exist on the site
     // Strategy: delete any key NOT in the freshly scraped set
-    const freshKeys = allWines.map((w) => w.key);
+    const freshKeys = uniqueWines.map((w) => w.key);
     const { error: deleteError } = await supabase
       .from("wines")
       .delete()
