@@ -371,6 +371,101 @@ function DrinkSearch({ list = [], onChange, placeholder, accentColor = "#7a507a"
   );
 }
 
+// ── BEV_TYPES — shared type styles for beverages ─────────────────────────────
+const BEV_TYPES = {
+  wine:     { label: "Glass",    color: "#7a5020", bg: "#fdf4e8", border: "#c8a060", dot: "#c8a060" },
+  cocktail: { label: "Cocktail", color: "#5a3878", bg: "#f5eeff", border: "#b898d8", dot: "#b898d8" },
+  spirit:   { label: "Spirit",   color: "#7a5020", bg: "#fff3e0", border: "#d4a870", dot: "#d4a870" },
+  beer:     { label: "Beer",     color: "#3a6a2a", bg: "#edf8e8", border: "#88bb70", dot: "#88bb70" },
+};
+
+// ── BeverageSearch — unified single-search across all drink types ─────────────
+function BeverageSearch({ wines, cocktails, spirits, beers, onAdd }) {
+  const [q, setQ]             = useState("");
+  const [results, setResults] = useState([]);
+  const [open, setOpen]       = useState(false);
+  const ref      = useRef();
+  const inputRef = useRef();
+
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("touchstart", h, { passive: true });
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("touchstart", h); };
+  }, []);
+
+  const search = val => {
+    if (!val.trim()) { setResults([]); setOpen(false); return; }
+    const lq = val.toLowerCase();
+    const r = [];
+    (wines || []).filter(w => w.byGlass || w.by_glass).forEach(w => {
+      if ((w.name||"").toLowerCase().includes(lq) || (w.producer||"").toLowerCase().includes(lq) || (w.vintage||"").includes(lq))
+        r.push({ type: "wine", item: w, label: w.name, sub: `${w.producer||""} · ${w.vintage||""}`.trim().replace(/^·|·$/, "").trim() });
+    });
+    (cocktails || []).forEach(c => {
+      if ((c.name||"").toLowerCase().includes(lq) || (c.notes||"").toLowerCase().includes(lq))
+        r.push({ type: "cocktail", item: c, label: c.name, sub: c.notes || "" });
+    });
+    (spirits || []).forEach(s => {
+      if ((s.name||"").toLowerCase().includes(lq) || (s.notes||"").toLowerCase().includes(lq))
+        r.push({ type: "spirit", item: s, label: s.name, sub: s.notes || "" });
+    });
+    (beers || []).forEach(b => {
+      if ((b.name||"").toLowerCase().includes(lq) || (b.notes||"").toLowerCase().includes(lq))
+        r.push({ type: "beer", item: b, label: b.name, sub: b.notes || "" });
+    });
+    setResults(r.slice(0, 10));
+    setOpen(r.length > 0);
+  };
+
+  const handleAdd = entry => {
+    onAdd(entry);
+    setQ("");
+    setResults([]);
+    setOpen(false);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <input
+        ref={inputRef}
+        value={q}
+        onChange={e => { setQ(e.target.value); search(e.target.value); }}
+        onFocus={() => results.length && setOpen(true)}
+        placeholder="search beverages…"
+        autoComplete="off"
+        style={{ ...baseInp, fontSize: MOBILE_SAFE_INPUT_SIZE, padding: "9px 12px", letterSpacing: 0.3 }}
+      />
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0,
+          background: "#fff", border: "1px solid #e8e8e8", borderRadius: 4,
+          zIndex: 300, boxShadow: "0 6px 24px rgba(0,0,0,0.10)", overflow: "hidden",
+        }}>
+          {results.map((r, i) => {
+            const ts = BEV_TYPES[r.type];
+            return (
+              <div key={i} onMouseDown={() => handleAdd(r)} style={{
+                padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f8f8f8",
+                display: "flex", alignItems: "center", gap: 10, background: "#fff",
+              }}>
+                <span style={{
+                  fontFamily: FONT, fontSize: 8, letterSpacing: 1, fontWeight: 600,
+                  padding: "2px 6px", borderRadius: 2, flexShrink: 0, textTransform: "uppercase",
+                  color: ts.color, background: ts.bg, border: `1px solid ${ts.border}`,
+                }}>{ts.label}</span>
+                <span style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a", flex: 1 }}>{r.label}</span>
+                {r.sub && <span style={{ fontFamily: FONT, fontSize: 11, color: "#999" }}>{r.sub}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── SwapPicker ────────────────────────────────────────────────────────────────
 function SwapPicker({ seatId, totalSeats, onSwap }) {
   const [open, setOpen] = useState(false);
@@ -1128,15 +1223,11 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
 
             <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 12 }}>
               {(() => {
-                const beveragePool = [
-                  ...wines.filter(w => w.byGlass).map(w => ({ __type: "wine", id: `wine-${w.id}`, name: w.name, notes: [w.producer, w.vintage].filter(Boolean).join(" · "), raw: w })),
-                  ...cocktails.map(c => ({ __type: "cocktail", id: `cocktail-${c.id}`, name: c.name, notes: c.notes || "Cocktail", raw: c })),
-                  ...spirits.map(s => ({ __type: "spirit", id: `spirit-${s.id}`, name: s.name, notes: s.notes || "Spirit", raw: s })),
-                ];
                 const selectedBeverages = [
-                  ...glasses.map((item, idx) => ({ key: `glasses-${idx}`, field: "glasses", chipBg: "#f5f5f5", chipColor: "#333", chipBorder: "#ddd", dot: "#bbb", label: `${item?.name || ""}${item?.producer ? ` · ${item.producer}` : ""}${item?.vintage ? ` · ${item.vintage}` : ""}` })),
-                  ...cocktailList.map((item, idx) => ({ key: `cocktails-${idx}`, field: "cocktails", chipBg: "#f9f5ff", chipColor: "#7a507a", chipBorder: "#dcc9ea", dot: "#c9a8e0", label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
-                  ...spiritList.map((item, idx) => ({ key: `spirits-${idx}`, field: "spirits", chipBg: "#fffaf5", chipColor: "#a07040", chipBorder: "#e5d3bb", dot: "#d8b48c", label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
+                  ...glasses.map((item, idx)     => ({ key: `glasses-${idx}`,   field: "glasses",   ts: BEV_TYPES.wine,     label: `${item?.name || ""}${item?.producer ? ` · ${item.producer}` : ""}${item?.vintage ? ` · ${item.vintage}` : ""}` })),
+                  ...cocktailList.map((item, idx) => ({ key: `cocktails-${idx}`, field: "cocktails", ts: BEV_TYPES.cocktail, label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
+                  ...spiritList.map((item, idx)   => ({ key: `spirits-${idx}`,   field: "spirits",   ts: BEV_TYPES.spirit,   label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
+                  ...(seat.beers || []).map((item, idx) => ({ key: `beers-${idx}`, field: "beers",   ts: BEV_TYPES.beer,     label: `${item?.name || ""}${item?.notes ? ` · ${item.notes}` : ""}` })),
                 ];
                 return (
                   <div style={{ border: "1px solid #ececec", borderRadius: 10, background: "#fcfcfc", padding: isMobile ? "10px" : "12px" }}>
@@ -1150,15 +1241,13 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                     </div>
                     {isBeverageOpen(seat.id) && (
                       <div style={{ marginTop: 10 }}>
-                        <DrinkSearch
-                          list={beveragePool}
-                          placeholder="search wine, cocktail, spirit…"
-                          accentColor="#555"
-                          onChange={item => {
-                            if (!item) return;
-                            if (item.__type === "wine") updSeat(seat.id, "glasses", [...glasses, item.raw]);
-                            if (item.__type === "cocktail") updSeat(seat.id, "cocktails", [...cocktailList, item.raw]);
-                            if (item.__type === "spirit") updSeat(seat.id, "spirits", [...spiritList, item.raw]);
+                        <BeverageSearch
+                          wines={wines} cocktails={cocktails} spirits={spirits} beers={beers}
+                          onAdd={entry => {
+                            if (entry.type === "wine")     updSeat(seat.id, "glasses",   [...glasses,      entry.item]);
+                            if (entry.type === "cocktail") updSeat(seat.id, "cocktails", [...cocktailList, entry.item]);
+                            if (entry.type === "spirit")   updSeat(seat.id, "spirits",   [...spiritList,   entry.item]);
+                            if (entry.type === "beer")     updSeat(seat.id, "beers",     [...(seat.beers || []), entry.item]);
                           }}
                         />
                       </div>
@@ -1167,14 +1256,14 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                       {selectedBeverages.length === 0 ? (
                         <div style={{ fontFamily: FONT, fontSize: 11, color: "#777", padding: "8px 10px", border: "1px dashed #e2e2e2", borderRadius: 8, background: "#fff" }}>no beverage added</div>
                       ) : selectedBeverages.map(item => (
-                        <span key={item.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT, fontSize: 11, color: item.chipColor, background: item.chipBg, border: `1px solid ${item.chipBorder}`, borderRadius: 999, padding: "4px 9px 4px 7px", maxWidth: isMobile ? "100%" : 260 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.dot, flexShrink: 0 }} />
+                        <span key={item.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT, fontSize: 11, color: item.ts.color, background: item.ts.bg, border: `1px solid ${item.ts.border}`, borderRadius: 999, padding: "4px 9px 4px 7px", maxWidth: isMobile ? "100%" : 260 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.ts.dot, flexShrink: 0 }} />
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
                           <button onClick={() => {
-                            const fieldList = item.field === "glasses" ? glasses : item.field === "cocktails" ? cocktailList : spiritList;
-                            const index = Number(item.key.split("-")[1]);
-                            updSeat(seat.id, item.field, fieldList.filter((_, i) => i !== index));
-                          }} style={{ background: "none", border: "none", color: item.chipColor, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
+                            const idx = Number(item.key.split("-")[1]);
+                            const fieldMap = { glasses: glasses, cocktails: cocktailList, spirits: spiritList, beers: seat.beers || [] };
+                            updSeat(seat.id, item.field, fieldMap[item.field].filter((_, i) => i !== idx));
+                          }} style={{ background: "none", border: "none", color: item.ts.color, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
                         </span>
                       ))}
                     </div>
@@ -1474,6 +1563,199 @@ function DisplayBoard({ tables, dishes }) {
   );
 }
 
+// ── FullModal ─────────────────────────────────────────────────────────────────
+function FullModal({ title, onClose, actions, children }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "#fff", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 54, borderBottom: "1px solid #ebebeb", background: "#fff", flexShrink: 0 }}>
+        <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#888", textTransform: "uppercase" }}>{title}</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {actions}
+          <button onClick={onClose} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px", border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555" }}>✕ CLOSE</button>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "28px 20px 60px" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── SummaryModal ──────────────────────────────────────────────────────────────
+function SummaryModal({ tables, dishes = [], onClose }) {
+  const active = tables.filter(t => t.active || t.arrivedAt);
+  const pairingColor = { "Wine": "#8a6030", "Non-Alc": "#1f5f73", "Premium": "#3a3a7a", "Our Story": "#2a6a4a" };
+  const pairingBg    = { "Wine": "#fdf4e8", "Non-Alc": "#e8f7fb", "Premium": "#eaeaf5", "Our Story": "#e0f5ea" };
+
+  const copyText = () => {
+    const lines = [];
+    active.forEach(t => {
+      lines.push(`TABLE ${String(t.id).padStart(2,"0")}${t.resName ? " · " + t.resName : ""}${t.arrivedAt ? " [arr. " + t.arrivedAt + "]" : ""}`);
+      if (t.menuType) lines.push(`  Menu: ${t.menuType}`);
+      t.seats.forEach(s => {
+        const parts = [`P${s.id}`];
+        if (s.water && s.water !== "—") parts.push(`water:${s.water}`);
+        if (s.pairing) parts.push(s.pairing);
+        const gs = (s.glasses   || []).map(w => w?.name).filter(Boolean);
+        const cs = (s.cocktails || []).map(c => c?.name).filter(Boolean);
+        const sp = (s.spirits   || []).map(x => x?.name).filter(Boolean);
+        const bs = (s.beers     || []).map(x => x?.name).filter(Boolean);
+        if (gs.length) parts.push("glass:"    + gs.join(","));
+        if (cs.length) parts.push("cocktail:" + cs.join(","));
+        if (sp.length) parts.push("spirit:"   + sp.join(","));
+        if (bs.length) parts.push("beer:"     + bs.join(","));
+        const extras = dishes.filter(d => s.extras?.[d.id]?.ordered);
+        if (extras.length) parts.push(extras.map(d => d.name).join(","));
+        const restr = (t.restrictions || []).filter(r => r.pos === s.id);
+        if (restr.length) parts.push("⚠" + restr.map(r => r.note).join(","));
+        lines.push("  " + parts.join(" | "));
+      });
+      lines.push("");
+    });
+    navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
+  };
+
+  return (
+    <FullModal title="Service Summary" onClose={onClose} actions={
+      <button onClick={copyText} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px", border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#555" }}>COPY TEXT</button>
+    }>
+      <div style={{ maxWidth: 800, margin: "0 auto" }}>
+        {active.length === 0 && (
+          <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", textAlign: "center", padding: "80px 0" }}>No active tables</div>
+        )}
+        {active.map(t => (
+          <div key={t.id} style={{ border: "1px solid #f0f0f0", borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+            <div style={{ padding: "12px 16px", background: "#fafafa", borderBottom: "1px solid #f0f0f0", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: FONT, fontSize: 22, fontWeight: 300, color: "#1a1a1a", letterSpacing: 1, lineHeight: 1 }}>{String(t.id).padStart(2,"0")}</span>
+              {t.resName   && <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 500, color: "#1a1a1a" }}>{t.resName}</span>}
+              {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
+              {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px", border: "1px solid #e0e0e0", borderRadius: 2, color: "#555", background: "#fff" }}>{t.menuType}</span>}
+              {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
+              {t.notes     && <span style={{ fontFamily: FONT, fontSize: 10, color: "#999", fontStyle: "italic", marginLeft: "auto" }}>{t.notes}</span>}
+            </div>
+            <div style={{ padding: "8px 12px 12px" }}>
+              {t.seats.map(s => {
+                const ws     = waterStyle(s.water);
+                const restr  = (t.restrictions || []).filter(r => r.pos === s.id);
+                const extras = dishes.filter(d => s.extras?.[d.id]?.ordered);
+                const allBevs = [
+                  ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
+                  ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
+                  ...(s.spirits   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.spirit })),
+                  ...(s.beers     || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.beer })),
+                ];
+                return (
+                  <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", padding: "8px 4px", borderBottom: "1px solid #f5f5f5" }}>
+                    <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: restr.length ? "#b04040" : "#999", minWidth: 28, letterSpacing: 0.5 }}>P{s.id}</span>
+                    {s.water !== "—" && <span style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, background: ws.bg || "#f5f5f5", color: "#333", border: "1px solid #e0e0e0" }}>{s.water}</span>}
+                    {s.pairing && <span style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #e0e0e0", color: pairingColor[s.pairing] || "#555", background: pairingBg[s.pairing] || "#fafafa" }}>{s.pairing}</span>}
+                    {allBevs.map((b, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg }}>{b.label}</span>)}
+                    {extras.map(d  => <span key={d.id} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2, border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8" }}>{d.name}</span>)}
+                    {restr.map((r, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2, border: "1px solid #e09090", color: "#b04040", background: "#fef0f0" }}>⚠ {r.note}</span>)}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </FullModal>
+  );
+}
+
+// ── ArchiveModal ──────────────────────────────────────────────────────────────
+function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }) {
+  const [entries, setEntries]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [expanded, setExpanded] = useState(null);
+  const pairingColor = { "Wine": "#8a6030", "Non-Alc": "#1f5f73", "Premium": "#3a3a7a", "Our Story": "#2a6a4a" };
+  const pairingBg    = { "Wine": "#fdf4e8", "Non-Alc": "#e8f7fb", "Premium": "#eaeaf5", "Our Story": "#e0f5ea" };
+
+  const loadEntries = () => {
+    if (!supabase) { setLoading(false); return; }
+    setLoading(true);
+    supabase.from("service_archive").select("*").order("created_at", { ascending: false }).limit(30)
+      .then(({ data, error }) => { setEntries(error ? [] : (data || [])); setLoading(false); });
+  };
+  useEffect(loadEntries, []);
+
+  const activeTables = tables.filter(t => t.active || t.arrivedAt || t.resName || t.resTime);
+
+  const archiveActions = (
+    <div style={{ display: "flex", gap: 8 }}>
+      <button onClick={onClearAll} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 14px", border: "1px solid #e8e8e8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#888" }}>CLEAR ALL</button>
+      <button onClick={async () => { await onArchiveAndClear(); loadEntries(); }} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "8px 16px", border: "1px solid #c8a06e", borderRadius: 2, cursor: "pointer", background: "#fdf8f0", color: "#8a6030" }}>ARCHIVE &amp; CLEAR ({activeTables.length})</button>
+    </div>
+  );
+
+  return (
+    <FullModal title="Archive · End of Day" onClose={onClose} actions={archiveActions}>
+      <div style={{ maxWidth: 800, margin: "0 auto" }}>
+        {!supabase && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>Supabase not connected — archive unavailable offline</div>}
+        {supabase && loading && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>Loading…</div>}
+        {supabase && !loading && entries.length === 0 && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>No archived services yet</div>}
+        {entries.map(entry => {
+          const isExp       = expanded === entry.id;
+          const entryTables = entry.state?.tables || [];
+          const totalGuests = entryTables.reduce((a, t) => a + (t.guests || 0), 0);
+          return (
+            <div key={entry.id} style={{ border: "1px solid #f0f0f0", borderRadius: 4, marginBottom: 8, overflow: "hidden" }}>
+              <div onClick={() => setExpanded(isExp ? null : entry.id)} style={{ padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", background: isExp ? "#fafafa" : "#fff" }}>
+                <div>
+                  <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 500, color: "#1a1a1a", marginBottom: 3 }}>{entry.label}</div>
+                  <div style={{ fontFamily: FONT, fontSize: 10, color: "#999" }}>{entryTables.length} tables · {totalGuests} guests</div>
+                </div>
+                <span style={{ fontFamily: FONT, fontSize: 16, color: "#ccc", transform: isExp ? "rotate(180deg)" : "none", transition: "transform 0.18s", display: "inline-block" }}>⌄</span>
+              </div>
+              {isExp && (
+                <div style={{ borderTop: "1px solid #f0f0f0" }}>
+                  {entryTables.map(t => (
+                    <div key={t.id} style={{ padding: "12px 16px", borderBottom: "1px solid #f8f8f8" }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: FONT, fontSize: 16, fontWeight: 300, color: "#1a1a1a", letterSpacing: 1 }}>{String(t.id).padStart(2,"0")}</span>
+                        {t.resName   && <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 500 }}>{t.resName}</span>}
+                        {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 10, color: "#4a9a6a" }}>arr. {t.arrivedAt}</span>}
+                        {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, padding: "2px 7px", border: "1px solid #e8e8e8", borderRadius: 2, color: "#555" }}>{t.menuType}</span>}
+                        {t.birthday  && <span style={{ fontSize: 12 }}>🎂</span>}
+                      </div>
+                      {(t.seats || []).map(s => {
+                        const ws     = waterStyle(s.water);
+                        const restr  = (t.restrictions || []).filter(r => r.pos === s.id);
+                        const extras = (entry.state?.dishes || dishes).filter(d => s.extras?.[d.id]?.ordered);
+                        const allBevs = [
+                          ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
+                          ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
+                          ...(s.spirits   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.spirit })),
+                          ...(s.beers     || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.beer })),
+                        ];
+                        return (
+                          <div key={s.id} style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", padding: "6px 4px", borderBottom: "1px solid #fafafa" }}>
+                            <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: "#999", minWidth: 26 }}>P{s.id}</span>
+                            {s.water !== "—" && <span style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, background: ws.bg || "#f0f0f0", color: "#444", border: "1px solid #e0e0e0" }}>{s.water}</span>}
+                            {s.pairing && <span style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, color: pairingColor[s.pairing] || "#555", background: pairingBg[s.pairing] || "#fafafa", border: "1px solid #e0e0e0" }}>{s.pairing}</span>}
+                            {allBevs.map((b, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg }}>{b.label}</span>)}
+                            {extras.map(d => <span key={d.id} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8" }}>{d.name}</span>)}
+                            {restr.map((r, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: "1px solid #e09090", color: "#b04040", background: "#fef0f0" }}>⚠ {r.note}</span>)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </FullModal>
+  );
+}
+
 // ── PIN codes ─────────────────────────────────────────────────────────────────
 const PINS = { admin: "3412" };
 
@@ -1615,7 +1897,9 @@ export default function App() {
   });
   const [sel,        setSel]        = useState(null);
   const [resModal,   setResModal]   = useState(null);
-  const [adminOpen,  setAdminOpen]  = useState(false);
+  const [adminOpen,    setAdminOpen]    = useState(false);
+  const [summaryOpen,  setSummaryOpen]  = useState(false);
+  const [archiveOpen,  setArchiveOpen]  = useState(false);
   const [syncStatus, setSyncStatus] = useState(hasSupabaseConfig ? "connecting" : "local-only");
 
   const applyingRemoteRef = useRef(false);
@@ -1824,6 +2108,20 @@ export default function App() {
     }
   };
 
+  const archiveAndClear = async () => {
+    if (!supabase) return;
+    const label = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) + " · " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const activeTables = tables.filter(t => t.active || t.arrivedAt || t.resName || t.resTime);
+    await supabase.from("service_archive").insert([{ date: new Date().toISOString().slice(0, 10), label, state: { tables: activeTables, dishes } }]);
+    const cleared = tables.map(t => ({ ...t, active: false, arrivedAt: null, resName: "", resTime: "", guests: 0, seats: [], menuType: null, birthday: false, notes: "", restrictions: [], wineBottle: null }));
+    setTables(cleared);
+  };
+
+  const clearAll = () => {
+    const cleared = tables.map(t => ({ ...t, active: false, arrivedAt: null, resName: "", resTime: "", guests: 0, seats: [], menuType: null, birthday: false, notes: "", restrictions: [], wineBottle: null }));
+    setTables(cleared);
+  };
+
   const active   = tables.filter(t => t.active);
   const seated   = active.reduce((a, t) => a + t.guests, 0);
   const reserved = tables.filter(t => !t.active && (t.resName || t.resTime)).length;
@@ -1831,7 +2129,7 @@ export default function App() {
   const syncLabel = syncStatus === "live" ? "SYNC" : syncStatus === "local-only" ? "LOCAL" : syncStatus === "connecting" ? "LINK" : "ERROR";
   const syncLive  = syncStatus === "live";
 
-  const Header = ({ modeLabel, showMenu }) => (
+  const Header = ({ modeLabel, showMenu, showSummary }) => (
     <div style={{
       borderBottom: "1px solid #f0f0f0", padding: "10px 12px",
       display: "flex", flexDirection: "column", gap: 10,
@@ -1853,6 +2151,18 @@ export default function App() {
               border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
             }}>MENU</button>
           )}
+          {showSummary && (
+            <button onClick={() => setSummaryOpen(true)} style={{
+              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
+              border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
+            }}>SUMMARY</button>
+          )}
+          {showSummary && (
+            <button onClick={() => setArchiveOpen(true)} style={{
+              fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
+              border: "1px solid #c8a06e", borderRadius: 999, cursor: "pointer", background: "#fdf8f0", color: "#8a6030",
+            }}>ARCHIVE</button>
+          )}
           <span style={syncPillStyle(syncLive)}>{syncLabel}</span>
           <button onClick={switchMode} style={{
             fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
@@ -1873,7 +2183,7 @@ export default function App() {
   if (mode === "display") return (
     <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT }}>
       <GlobalStyle />
-      <Header modeLabel="display" showMenu={false} />
+      <Header modeLabel="display" showMenu={false} showSummary={false} />
       <DisplayBoard tables={tables} dishes={dishes} />
     </div>
   );
@@ -1881,7 +2191,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT }}>
       <GlobalStyle />
-      <Header modeLabel={mode} showMenu={mode === "admin"} />
+      <Header modeLabel={mode} showMenu={mode === "admin"} showSummary={true} />
 
       {sel === null ? (
         <div style={{ padding: "20px 12px", maxWidth: 960, margin: "0 auto" }}>
@@ -1916,6 +2226,16 @@ export default function App() {
           onUpdateDishes={setDishes} onUpdateWines={setWines}
           onSaveBeverages={saveBeverages}
           onClose={() => setAdminOpen(false)} />
+      )}
+      {summaryOpen && (
+        <SummaryModal tables={tables} dishes={dishes} onClose={() => setSummaryOpen(false)} />
+      )}
+      {archiveOpen && (
+        <ArchiveModal
+          tables={tables} dishes={dishes}
+          onArchiveAndClear={archiveAndClear}
+          onClearAll={() => { clearAll(); setArchiveOpen(false); }}
+          onClose={() => setArchiveOpen(false)} />
       )}
     </div>
   );
