@@ -1632,7 +1632,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
-function Header({ modeLabel, showSummary, showMenu, showArchive, syncLabel, syncLive, activeCount, reserved, seated, onSummary, onMenu, onArchive, onExit }) {
+function Header({ modeLabel, showSummary, showMenu, showArchive, showAddRes, syncLabel, syncLive, activeCount, reserved, seated, onSummary, onMenu, onArchive, onAddRes, onExit }) {
   const modeColor = modeLabel === "ADMIN" ? "#4b4b88" : modeLabel === "SERVICE" ? "#2f7a45" : "#555";
   return (
     <div style={{
@@ -1647,6 +1647,9 @@ function Header({ modeLabel, showSummary, showMenu, showArchive, syncLabel, sync
           <span style={{ fontSize: 10, letterSpacing: 3, color: modeColor, textTransform: "uppercase", fontWeight: 700 }}>{modeLabel}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {showAddRes && (
+            <button onClick={onAddRes} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 12px", border: "1px solid #1a1a1a", borderRadius: 999, cursor: "pointer", background: "#1a1a1a", color: "#fff", fontWeight: 600 }}>+ RES</button>
+          )}
           {showSummary && (
             <button onClick={onSummary} style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px", border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a" }}>SUMMARY</button>
           )}
@@ -2458,6 +2461,11 @@ export default function App() {
     onMenu: () => setAdminOpen(true),
     onSummary: () => setSummaryOpen(true),
     onArchive: () => setArchiveOpen(true),
+    onAddRes: () => {
+      const freeTable = tables.find(t => !t.active && !t.resName && !t.resTime);
+      if (freeTable) { setResModalPresetTime(null); setResModal(freeTable.id); }
+      else { setResModalPresetTime(null); setResModal(tables[0].id); }
+    },
   };
 
   // Gate 1: password wall — must authenticate before anything
@@ -2506,6 +2514,7 @@ export default function App() {
       <Header
         modeLabel={mode === "admin" ? "ADMIN" : "SERVICE"}
         showSummary={true}
+        showAddRes={mode === "admin"}
         showMenu={mode === "admin"}
         showArchive={mode === "admin"}
         {...hProps}
