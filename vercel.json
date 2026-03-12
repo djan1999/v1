@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/sync-wines",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}
