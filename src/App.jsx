@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const FONT = "'Roboto Mono', monospace";
@@ -56,6 +56,88 @@ const pairingStyle = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function useOutsidePress(ref, handler) {
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const listener = e => {
+      const node = ref?.current;
+      if (!node || node.contains(e.target)) return;
+      handler(e);
+    };
+    document.addEventListener("pointerdown", listener);
+    document.addEventListener("touchstart", listener, { passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", listener);
+      document.removeEventListener("touchstart", listener);
+    };
+  }, [ref, handler]);
+}
+
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error) {
+    try {
+      console.error("Milka board crashed:", error);
+    } catch {}
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+          background: "#fff",
+          fontFamily: FONT,
+        }}>
+          <div style={{
+            width: "100%",
+            maxWidth: 560,
+            border: "1px solid #e8d0d0",
+            background: "#fff8f8",
+            borderRadius: 6,
+            padding: "20px",
+            color: "#7a3030",
+          }}>
+            <div style={{ fontSize: 12, letterSpacing: 3, marginBottom: 10 }}>APP ERROR</div>
+            <div style={{ fontSize: 14, lineHeight: 1.5, color: "#5a2020" }}>
+              The app hit a runtime error. Reload the page. If it still fails, clear local storage for this site and redeploy this file.
+            </div>
+            {this.state.error?.message && (
+              <div style={{
+                marginTop: 14,
+                padding: "12px",
+                border: "1px solid #eed0d0",
+                background: "#fff",
+                borderRadius: 4,
+                fontSize: 12,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                color: "#7a3030",
+              }}>
+                {this.state.error.message}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 const fuzzy = (q, wineList, byGlass = null) => {
   if (!q) return [];
   const lq = q.toLowerCase();
@@ -171,7 +253,13 @@ const STORAGE_KEY = "milka-service-board-v7";
 const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
-const supabase = hasSupabaseConfig ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let supabase = null;
+try {
+  supabase = hasSupabaseConfig ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+} catch (error) {
+  console.error("Supabase init failed:", error);
+  supabase = null;
+}
 
 const defaultBoardState = () => ({
   tables: initTables,
@@ -242,11 +330,7 @@ function GlobalStyle() {
 function WaterPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
-  useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
+  useOutsidePress(ref, () => setOpen(false));
   const ws = waterStyle(value);
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -284,11 +368,7 @@ function WineSearch({ wineObj, wines = [], onChange, placeholder, byGlass = null
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
   const ref = useRef();
-  useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
+  useOutsidePress(ref, () => setOpen(false));
   const py = compact ? 5 : 7;
   return (
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
@@ -348,11 +428,7 @@ function DrinkSearch({ list = [], onChange, placeholder, accentColor = "#7a507a"
   const [results, setResults] = useState([]);
   const [open, setOpen]      = useState(false);
   const ref = useRef();
-  useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
+  useOutsidePress(ref, () => setOpen(false));
   return (
     <div ref={ref} style={{ position: "relative", width: "100%" }}>
       <input value={q} onChange={e => {
@@ -386,11 +462,7 @@ function DrinkSearch({ list = [], onChange, placeholder, accentColor = "#7a507a"
 function SwapPicker({ seatId, totalSeats, onSwap }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
-  useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
+  useOutsidePress(ref, () => setOpen(false));
   const others = Array.from({ length: totalSeats }, (_, i) => i + 1).filter(n => n !== seatId);
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -1011,11 +1083,7 @@ function UnifiedDrinkSearch({ pool, BTYPE, onSelect, onClose }) {
   const ref = useRef();
   const inputRef = useRef();
   useEffect(() => { inputRef.current?.focus(); }, []);
-  useEffect(() => {
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [onClose]);
+  useOutsidePress(ref, onClose);
   const doSearch = val => {
     const lq = val.toLowerCase();
     if (!lq) { setRes(pool.slice(0, 8)); setOpen(true); return; }
@@ -1864,7 +1932,7 @@ function LoginScreen({ onEnter }) {
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
-export default function App() {
+function AppInner() {
   const initialState = readLocalBoardState() || defaultBoardState();
 
   const [tables,    setTables]    = useState(initialState.tables);
@@ -2136,5 +2204,14 @@ export default function App() {
         <SummaryModal tables={tables} dishes={dishes} wines={wines} cocktails={cocktails} spirits={spirits} onClose={() => setSummaryOpen(false)} />
       )}
     </div>
+  );
+}
+
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <AppInner />
+    </AppErrorBoundary>
   );
 }
