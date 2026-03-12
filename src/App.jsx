@@ -752,8 +752,9 @@ function AdminPanel({ dishes, wines, cocktails, spirits, beers, onUpdateDishes, 
   );
 }
 // ── Reservation Modal ─────────────────────────────────────────────────────────
-function ReservationModal({ table, onSave, onClose }) {
+function ReservationModal({ table, tables = [], onSave, onClose }) {
   const isMobile = useIsMobile(700);
+  const [tableId, setTableId]     = useState(table.id);
   const [name, setName]           = useState(table.resName || "");
   const [time, setTime]           = useState(table.resTime || "");
   const [menuType, setMenuType]   = useState(table.menuType || "");
@@ -783,8 +784,43 @@ function ReservationModal({ table, onSave, onClose }) {
         {/* Drag handle */}
         <div style={{ width: 36, height: 4, borderRadius: 2, background: "#e0e0e0", margin: "0 auto 20px" }} />
 
-        <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#666", marginBottom: 20 }}>
-          TABLE {String(table.id).padStart(2,"0")} · RESERVATION
+        <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#666", marginBottom: 16 }}>
+          TABLE · RESERVATION
+        </div>
+
+        {/* Table picker */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={fieldLabel}>Table</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+            {Array.from({ length: 10 }, (_, i) => i + 1).map(tid => {
+              const tObj    = tables.find(t => t.id === tid);
+              const isActive   = tObj?.active;
+              const isBooked   = tObj && (tObj.resName || tObj.resTime) && tObj.id !== table.id;
+              const isSel   = tableId === tid;
+              return (
+                <button key={tid}
+                  onClick={() => { if (!isActive) setTableId(tid); }}
+                  disabled={isActive}
+                  title={isActive ? "Table is currently seated" : isBooked ? `Reserved: ${tObj.resName || tObj.resTime}` : ""}
+                  style={{
+                    fontFamily: FONT, fontSize: 13, fontWeight: 500, letterSpacing: 1,
+                    padding: "12px 0", border: "1px solid",
+                    borderColor: isSel ? "#1a1a1a" : isActive ? "#f0f0f0" : isBooked ? "#f0c8a8" : "#e8e8e8",
+                    borderRadius: 2, cursor: isActive ? "not-allowed" : "pointer",
+                    background: isSel ? "#1a1a1a" : isActive ? "#f8f8f8" : isBooked ? "#fff8f2" : "#fff",
+                    color: isSel ? "#fff" : isActive ? "#ccc" : isBooked ? "#c07840" : "#444",
+                    transition: "all 0.1s",
+                  }}>
+                  T{String(tid).padStart(2, "0")}
+                </button>
+              );
+            })}
+          </div>
+          {tables.find(t => t.id === tableId && (t.resName || t.resTime) && t.id !== table.id) && (
+            <div style={{ fontFamily: FONT, fontSize: 10, color: "#c07840", marginTop: 6, letterSpacing: 0.5 }}>
+              ⚠ This table already has a reservation — saving will overwrite it
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -796,14 +832,14 @@ function ReservationModal({ table, onSave, onClose }) {
           <div>
             <div style={fieldLabel}>Sitting</div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 8 }}>
-              {["18:00","18:30","19:00","19:15"].map(t => (
+              {["18:00","18:30","19:00"].map(t => (
                 <button key={t} onClick={() => setTime(t)} style={{
                   fontFamily: FONT, fontSize: 13, letterSpacing: 1,
                   padding: "14px 0", flex: 1, border: "1px solid",
                   borderColor: time === t ? "#1a1a1a" : "#e8e8e8",
                   borderRadius: 2, cursor: "pointer",
                   background: time === t ? "#1a1a1a" : "#fff",
-                  color: time === t ? "#fff" : t === "19:15" ? "#555" : "#888",
+                  color: time === t ? "#fff" : "#888",
                   transition: "all 0.12s",
                 }}>{t}</button>
               ))}
@@ -926,7 +962,7 @@ function ReservationModal({ table, onSave, onClose }) {
             flex: 1, fontFamily: FONT, fontSize: 12, letterSpacing: 2,
             padding: "14px", border: "1px solid #e8e8e8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444",
           }}>CANCEL</button>
-          <button onClick={() => onSave({ name, time, menuType, guests, guestType, room, birthday, restrictions, notes })} style={{
+          <button onClick={() => onSave({ tableId, name, time, menuType, guests, guestType, room, birthday, restrictions, notes })} style={{
             flex: 2, fontFamily: FONT, fontSize: 12, letterSpacing: 2,
             padding: "14px", border: "1px solid #1a1a1a", borderRadius: 2, cursor: "pointer", background: "#1a1a1a", color: "#fff",
           }}>SAVE</button>
@@ -938,7 +974,7 @@ function ReservationModal({ table, onSave, onClose }) {
 
 
 // ── Sitting time rows layout constant ─────────────────────────────────────────
-const SITTING_TIMES = ["18:00", "18:30", "19:00", "19:15"];
+const SITTING_TIMES = ["18:00", "18:30", "19:00"];
 
 // ── Table Card ────────────────────────────────────────────────────────────────
 function Card({ table, mode, onClick, onSeat, onUnseat, onClear, onEditRes }) {
@@ -1454,23 +1490,26 @@ function TableSeatDetail({ table, dishes, isMobile }) {
 
 // ── Display Board ─────────────────────────────────────────────────────────────
 function DisplayBoard({ tables, dishes }) {
-  const [sel, setSel]      = useState(null);
   const [expanded, setExp] = useState(null);
   const isMobile = useIsMobile(700);
 
-  const sorted = [...tables].sort((a, b) => {
-    const rank = t => t.active ? 0 : (t.resTime ? 1 : 2);
-    if (rank(a) !== rank(b)) return rank(a) - rank(b);
-    const timeA = a.arrivedAt || a.resTime || "99:99";
-    const timeB = b.arrivedAt || b.resTime || "99:99";
-    return timeA.localeCompare(timeB);
-  });
-  const visible = sorted.filter(t => t.active || t.resTime || t.resName);
+  // Group tables into sitting rows, 19:15 folds into 19:00
+  const visible = tables.filter(t => t.active || t.resTime || t.resName);
 
-  useEffect(() => {
-    const firstActive = sorted.find(t => t.active);
-    if (sel === null && firstActive) setSel(firstActive.id);
-  }, [tables]);
+  const rowsData = SITTING_TIMES.map(time => {
+    const rowTables = visible
+      .filter(t => t.resTime === time || (time === "19:00" && t.resTime === "19:15"))
+      .sort((a, b) => {
+        // Seated (arrived) first, then by arrivedAt, then by resTime
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        const ta = a.arrivedAt || a.resTime || "99:99";
+        const tb = b.arrivedAt || b.resTime || "99:99";
+        return ta.localeCompare(tb);
+      });
+    return { time, tables: rowTables };
+  });
+
+  const hasAny = rowsData.some(r => r.tables.length > 0);
 
   const chip = (label, color, bg, border, bold = false) => (
     <span style={{
@@ -1481,165 +1520,113 @@ function DisplayBoard({ tables, dishes }) {
     }}>{label}</span>
   );
 
-  // ── MOBILE layout ────────────────────────────────────────────────────────────
-  if (isMobile) {
+  const TableCard = ({ t }) => {
+    const isOpen   = expanded === t.id;
+    const isSeated = t.active;
+    const hasRestr = (t.restrictions || []).some(r => r.note);
     return (
-      <div style={{ overflowY: "auto", overflowX: "hidden", padding: "12px 12px 40px", background: "#fafafa", minHeight: "calc(100vh - 52px)" }}>
-        {visible.length === 0 && (
-          <div style={{ fontFamily: FONT, fontSize: 10, color: "#666", textAlign: "center", marginTop: 60, letterSpacing: 2 }}>
-            no active tables
+      <div style={{
+        background: isSeated ? "#f8fcf9" : "#fbfcfe",
+        border: `1px solid ${isSeated ? "#9bd0aa" : "#dde8f5"}`,
+        borderRadius: isMobile ? 10 : 4,
+        overflow: "hidden",
+        boxShadow: isOpen ? "0 4px 16px rgba(0,0,0,0.07)" : "none",
+        transition: "box-shadow 0.15s",
+      }}>
+        {/* colour bar */}
+        <div style={{ height: 3, background: isSeated ? "#7bc492" : "#a8c4e0" }} />
+
+        {/* header row */}
+        <div onClick={() => setExp(isOpen ? null : t.id)} style={{
+          padding: isMobile ? "14px 16px" : "12px 14px",
+          display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+        }}>
+          <span style={{ fontFamily: FONT, fontSize: isMobile ? 24 : 20, fontWeight: 300, color: "#1a1a1a", minWidth: 32, lineHeight: 1 }}>
+            {String(t.id).padStart(2, "0")}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {t.resName && (
+              <div style={{ fontFamily: FONT, fontSize: isMobile ? 13 : 12, fontWeight: 500, color: "#1a1a1a", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {t.resName}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {t.arrivedAt
+                ? <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 600 }}>arr. {t.arrivedAt}</span>
+                : t.resTime
+                  ? <span style={{ fontFamily: FONT, fontSize: 11, color: "#888" }}>res. {t.resTime}</span>
+                  : null
+              }
+              {isSeated
+                ? <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f7a45", letterSpacing: 1, border: "1px solid #9bd0aa", borderRadius: 2, padding: "2px 5px", background: "#ecf8ef", fontWeight: 700 }}>SEATED</span>
+                : <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f5f8a", letterSpacing: 1, border: "1px solid #c6d7ea", borderRadius: 2, padding: "2px 5px", background: "#eef5fb", fontWeight: 700 }}>RESERVED</span>
+              }
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0 }}>
+            {t.birthday  && <span style={{ fontSize: 13 }}>🎂</span>}
+            {hasRestr    && <span style={{ fontSize: 13 }}>⚠️</span>}
+            {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", border: "1px solid #e8e8e8", borderRadius: 2, padding: "2px 5px" }}>{t.menuType}</span>}
+            {t.guestType === "hotel" && t.room && (
+              <span style={{ fontFamily: FONT, fontSize: 8, color: "#a07040", border: "1px solid #d4b888", borderRadius: 2, padding: "2px 5px", fontWeight: 500 }}>#{t.room}</span>
+            )}
+            <span style={{
+              fontFamily: FONT, fontSize: 16, color: "#bbb", lineHeight: 1, marginLeft: 2,
+              transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.18s", display: "inline-block",
+            }}>⌄</span>
+          </div>
+        </div>
+
+        {/* expanded detail */}
+        {isOpen && (
+          <div style={{ borderTop: "1px solid #f0f0f0", padding: "16px 16px 20px", background: "#fff" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+              {t.guestType === "hotel" && t.room && chip(`Hotel #${t.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
+              {t.menuType  && chip(`${t.menuType} menu`, "#333", "#f8f8f8", "#d8d8d8", true)}
+              {t.resTime   && chip(`res. ${t.resTime}`,   "#555", "#f0f0f0", "#d8d8d8")}
+              {t.arrivedAt && chip(`arr. ${t.arrivedAt}`, "#2a6a3a", "#e0f5ea", "#7acc8a", true)}
+              {chip(`${t.guests} guest${t.guests === 1 ? "" : "s"}`, "#333", "#f5f5f5", "#dedede", true)}
+              {t.birthday  && chip("🎂 birthday", "#7a5020", "#fdf0e0", "#d4b888", true)}
+            </div>
+            <TableSeatDetail table={t} dishes={dishes} isMobile={isMobile} />
           </div>
         )}
-        {visible.map(t => {
-          const isOpen   = expanded === t.id;
-          const isSeated = t.active;
-          const hasRestr = (t.restrictions || []).some(r => r.note);
-          return (
-            <div key={t.id} style={{
-              background: isSeated ? "#f8fcf9" : "#fbfcfe", borderRadius: 10,
-              border: `1px solid ${isSeated ? "#9bd0aa" : "#d9e5f2"}`,
-              marginBottom: 10,
-              boxShadow: isOpen ? "0 8px 24px rgba(0,0,0,0.08)" : "0 1px 0 rgba(0,0,0,0.02)",
-              transition: "box-shadow 0.15s", overflow: "hidden",
-            }}>
-              <div style={{ height: 4, background: isSeated ? "#7bc492" : "#7faedb" }} />
-              <div onClick={() => setExp(isOpen ? null : t.id)} style={{
-                padding: "16px 16px", display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
-              }}>
-                <div style={{ fontFamily: FONT, fontSize: 26, fontWeight: 300, color: isSeated ? "#1a1a1a" : "#444", minWidth: 36, lineHeight: 1 }}>
-                  {String(t.id).padStart(2,"0")}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {t.resName && (
-                    <div style={{ fontFamily: FONT, fontSize: 14, fontWeight: 500, color: "#1a1a1a", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {t.resName}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    {t.resTime  && <span style={{ fontFamily: FONT, fontSize: 11, color: "#1a1a1a", fontWeight: 500 }}>res. {t.resTime}</span>}
-                    {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
-                    {isSeated
-                      ? <span style={{ fontFamily: FONT, fontSize: 9, color: "#2f7a45", letterSpacing: 1, border: "1px solid #9bd0aa", borderRadius: 999, padding: "3px 8px", background: "#ecf8ef", fontWeight: 700 }}>SEATED</span>
-                      : <span style={{ fontFamily: FONT, fontSize: 9, color: "#9a6a18", letterSpacing: 1, border: "1px solid #e8d8b8", borderRadius: 999, padding: "3px 8px", background: "#fff8ea", fontWeight: 700 }}>RESERVED</span>
-                    }
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                  {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
-                  {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", border: "1px solid #e8e8e8", borderRadius: 2, padding: "3px 6px" }}>{t.menuType}</span>}
-                  {hasRestr    && <span style={{ fontSize: 14 }}>⚠️</span>}
-                  {t.guestType === "hotel" && t.room && (
-                    <span style={{ fontFamily: FONT, fontSize: 9, color: "#a07040", border: "1px solid #d4b888", borderRadius: 2, padding: "3px 6px", fontWeight: 500 }}>#{t.room}</span>
-                  )}
-                  <span style={{
-                    fontFamily: FONT, fontSize: 16, color: "#555",
-                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 0.2s", display: "inline-block", lineHeight: 1, marginLeft: 4,
-                  }}>⌄</span>
-                </div>
-              </div>
-              {isOpen && (
-                <div style={{ borderTop: "1px solid #f0f0f0", padding: "16px 16px 20px", background: "#fff" }}>
-                  {(t.guestType === "hotel" || t.arrivedAt || t.resTime || t.menuType) && (
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-                      {t.guestType === "hotel" && t.room && chip(`Hotel #${t.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
-                      {t.menuType  && chip(`${t.menuType} menu`, "#333", "#f8f8f8", "#d8d8d8", true)}
-                      {t.resTime   && chip(`res. ${t.resTime}`,   "#555", "#f0f0f0", "#d8d8d8")}
-                      {t.arrivedAt && chip(`arr. ${t.arrivedAt}`, "#2a6a3a", "#e0f5ea", "#7acc8a", true)}
-                      {chip(`${t.guests} guest${t.guests === 1 ? "" : "s"}`, "#333", "#f5f5f5", "#dedede", true)}
-                      {t.birthday  && chip("🎂 birthday", "#7a5020", "#fdf0e0", "#d4b888", true)}
-                    </div>
-                  )}
-                  <TableSeatDetail table={t} dishes={dishes} isMobile={true} />
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
     );
-  }
+  };
 
-  // ── DESKTOP layout: split panel ──────────────────────────────────────────────
-  const table = tables.find(t => t.id === sel);
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 52px)", overflow: "hidden" }}>
-      <div style={{
-        width: 220, flexShrink: 0, borderRight: "1px solid #e8e8e8",
-        overflowY: "auto", padding: "16px 0", background: "#fafafa",
-      }}>
-        {visible.length === 0 && (
-          <div style={{ fontFamily: FONT, fontSize: 10, color: "#666", padding: "20px", letterSpacing: 1 }}>no reservations</div>
-        )}
-        {visible.map(t => {
-          const isSel    = t.id === sel;
-          const isSeated = t.active;
-          return (
-            <div key={t.id} onClick={() => setSel(t.id)} style={{
-              padding: "14px 20px", cursor: "pointer",
-              background: isSel ? "#fff" : isSeated ? "#f8fcf9" : "transparent",
-              borderLeft: isSel ? "2px solid #1a1a1a" : isSeated ? "2px solid #7bc492" : "2px solid transparent",
-              borderBottom: "1px solid #f0f0f0", transition: "all 0.1s",
+    <div style={{ overflowY: "auto", overflowX: "hidden", padding: isMobile ? "16px 12px 40px" : "28px 28px 48px", background: "#fafafa", minHeight: "calc(100vh - 52px)" }}>
+      {!hasAny && (
+        <div style={{ fontFamily: FONT, fontSize: 10, color: "#aaa", textAlign: "center", marginTop: 80, letterSpacing: 2 }}>
+          no reservations
+        </div>
+      )}
+      {rowsData.map(({ time, tables: rowTables }) => {
+        if (rowTables.length === 0) return null;
+        return (
+          <div key={time} style={{ marginBottom: 36 }}>
+            {/* Row label */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>
+                {time}
+              </span>
+              <div style={{ flex: 1, height: 1, background: "#e8e8e8" }} />
+              <span style={{ fontFamily: FONT, fontSize: 10, color: "#bbb" }}>
+                {rowTables.filter(t => t.active).length}/{rowTables.length} seated
+              </span>
+            </div>
+            {/* Cards */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(260px, 1fr))",
+              gap: isMobile ? 10 : 12,
             }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, color: "#1a1a1a", letterSpacing: 1 }}>
-                    {String(t.id).padStart(2,"0")}
-                  </span>
-                  {isSeated && <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f7a45", border: "1px solid #9bd0aa", background: "#ecf8ef", borderRadius: 2, padding: "2px 5px", fontWeight: 600, letterSpacing: 1 }}>SEATED</span>}
-                </div>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {t.birthday && <span style={{ fontSize: 11 }}>🎂</span>}
-                  {t.menuType && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", border: "1px solid #e8e8e8", borderRadius: 2, padding: "2px 5px" }}>{t.menuType}</span>}
-                  {(t.restrictions||[]).some(r => r.note) && <span style={{ fontSize: 11 }}>⚠️</span>}
-                  {t.guestType === "hotel" && (
-                    <span style={{ fontFamily: FONT, fontSize: 8, color: "#a07040", border: "1px solid #d4b888", borderRadius: 2, padding: "2px 5px", fontWeight: 500 }}>
-                      {t.room ? `#${t.room}` : "H"}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {t.resName && <div style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a", fontWeight: 500, marginBottom: 3 }}>{t.resName}</div>}
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {t.resTime   && <span style={{ fontFamily: FONT, fontSize: 10, color: "#1a1a1a", fontWeight: 500 }}>res. {t.resTime}</span>}
-                {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 10, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
-                {!isSeated   && <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f5f8a", border: "1px solid #c6d7ea", background: "#eef5fb", borderRadius: 2, padding: "2px 5px", fontWeight: 600, letterSpacing: 1 }}>RESERVED</span>}
-              </div>
+              {rowTables.map(t => <TableCard key={t.id} t={t} />)}
             </div>
-          );
-        })}
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", padding: "36px 48px", background: "#fff" }}>
-        {!table ? (
-          <div style={{ fontFamily: FONT, fontSize: 11, color: "#666", marginTop: 60, textAlign: "center", letterSpacing: 2 }}>
-            SELECT A TABLE
           </div>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
-              <div>
-                <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 4, color: "#444", marginBottom: 4 }}>TABLE</div>
-                <div style={{ fontFamily: FONT, fontSize: 52, fontWeight: 300, lineHeight: 1, color: "#1a1a1a" }}>
-                  {String(table.id).padStart(2,"0")}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", marginTop: 8 }}>
-                {table.guestType === "hotel" && table.room && chip(`Hotel #${table.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
-                {table.menuType  && chip(`${table.menuType} menu`, "#333", "#f8f8f8", "#d8d8d8", true)}
-                {table.resTime   && chip(`res. ${table.resTime}`, "#555", "#f0f0f0", "#d8d8d8")}
-                {table.arrivedAt && chip(`arr. ${table.arrivedAt}`, "#2a6a3a", "#e0f5ea", "#7acc8a", true)}
-                {chip(`${table.guests} guest${table.guests === 1 ? "" : "s"}`, "#333", "#f5f5f5", "#dedede", true)}
-                {table.birthday  && chip("🎂 birthday", "#7a5020", "#fdf0e0", "#d4b888", true)}
-              </div>
-            </div>
-            {table.resName && (
-              <div style={{ fontFamily: FONT, fontSize: 20, fontWeight: 500, color: "#1a1a1a", marginBottom: 28 }}>{table.resName}</div>
-            )}
-            <TableSeatDetail table={table} dishes={dishes} isMobile={false} />
-          </>
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 }
@@ -2300,10 +2287,14 @@ export default function App() {
     })};
   }));
 
-  const saveRes = (id, { name, time, menuType, guests, guestType, room, birthday, restrictions, notes }) => {
-    setTables(p => p.map(t =>
-      t.id !== id ? t : { ...t, resName: name, resTime: time, menuType, guestType, room, guests, seats: makeSeats(guests, t.seats), birthday, restrictions, notes }
-    ));
+  const saveRes = (id, { tableId, name, time, menuType, guests, guestType, room, birthday, restrictions, notes }) => {
+    const targetId = tableId ?? id;
+    setTables(p => p.map(t => {
+      // Clear old table if user picked a different one
+      if (t.id === id && id !== targetId) return { ...t, resName: "", resTime: "", menuType: "", guestType: "", room: "", guests: 2, birthday: false, restrictions: [], notes: "" };
+      if (t.id !== targetId) return t;
+      return { ...t, resName: name, resTime: time, menuType, guestType, room, guests, seats: makeSeats(guests, t.seats), birthday, restrictions, notes };
+    }));
     setResModal(null);
   };
 
@@ -2536,18 +2527,17 @@ export default function App() {
             // Group tables by sitting time
             const rows = SITTING_TIMES.map(time => ({
               time,
-              tables: visibleTables.filter(t => t.resTime === time || (t.active && !t.resTime && t.arrivedAt === undefined && false)),
+              tables: visibleTables.filter(t => {
+                if (t.resTime === time) return true;
+                // 19:15 falls into 19:00 row
+                if (time === "19:00" && t.resTime === "19:15") return true;
+                return false;
+              }),
             }));
 
-            // Tables that are active (seated) with no resTime — walk-ins / already seated
-            const activeNoTime = visibleTables.filter(t => t.active && !t.resTime);
-            // Tables with resTime not in SITTING_TIMES
-            const otherRes = visibleTables.filter(t => t.resTime && !SITTING_TIMES.includes(t.resTime));
-
             const hasAnyInRows = rows.some(r => r.tables.length > 0);
-            const hasExtra = activeNoTime.length > 0 || otherRes.length > 0;
 
-            if (!hasAnyInRows && !hasExtra) {
+            if (!hasAnyInRows) {
               return (
                 <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", textAlign: "center", paddingTop: 80 }}>
                   No reservations yet — add them in Admin
@@ -2602,32 +2592,6 @@ export default function App() {
                     </div>
                   );
                 })}
-
-                {/* Walk-ins / active tables with no res time */}
-                {activeNoTime.length > 0 && (
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                      <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>walk-in</span>
-                      <div style={{ flex: 1, height: 1, background: "#f0f0f0" }} />
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14 }}>
-                      {activeNoTime.map(t => <Card {...cardProps(t)} />)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Tables with non-standard res times */}
-                {otherRes.length > 0 && (
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                      <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>other</span>
-                      <div style={{ flex: 1, height: 1, background: "#f0f0f0" }} />
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14 }}>
-                      {otherRes.map(t => <Card {...cardProps(t)} />)}
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })()}
@@ -2652,6 +2616,7 @@ export default function App() {
       {mode === "admin" && resModal !== null && modalTable && (
         <ReservationModal
           table={{ ...modalTable, resTime: resModalPresetTime || modalTable.resTime }}
+          tables={tables}
           onSave={data => saveRes(resModal, data)}
           onClose={() => { setResModal(null); setResModalPresetTime(null); }}
         />
