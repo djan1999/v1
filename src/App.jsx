@@ -1003,6 +1003,67 @@ function TableSeatDetail({ table, dishes, isMobile }) {
   );
 }
 
+// ── UnifiedDrinkSearch ────────────────────────────────────────────────────────
+function UnifiedDrinkSearch({ pool, BTYPE, onSelect, onClose }) {
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState([]);
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  const inputRef = useRef();
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [onClose]);
+  const doSearch = val => {
+    const lq = val.toLowerCase();
+    if (!lq) { setRes(pool.slice(0, 8)); setOpen(true); return; }
+    const hits = pool.filter(p =>
+      p.name.toLowerCase().includes(lq) || (p.sub || "").toLowerCase().includes(lq)
+    ).slice(0, 8);
+    setRes(hits); setOpen(hits.length > 0);
+  };
+  return (
+    <div ref={ref} style={{ position: "relative", marginTop: 8 }}>
+      <input ref={inputRef} value={q}
+        onChange={e => { setQ(e.target.value); doSearch(e.target.value); }}
+        onFocus={() => { if (!q) { setRes(pool.slice(0,8)); setOpen(true); } else if (res.length) setOpen(true); }}
+        onKeyDown={e => e.key === "Escape" && onClose()}
+        placeholder="search wine by glass, cocktail, spirit…"
+        style={{ ...baseInp, padding: "8px 12px", letterSpacing: 0.3 }}
+      />
+      {open && res.length > 0 && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+          background: "#fff", border: "1px solid #e0e0e0", borderRadius: 4,
+          zIndex: 300, boxShadow: "0 8px 28px rgba(0,0,0,0.10)", overflow: "hidden",
+        }}>
+          {res.map(item => {
+            const bt = BTYPE[item.__type];
+            return (
+              <div key={item.id} onMouseDown={() => { onSelect(item); }}
+                style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f5f5f5", display: "flex", alignItems: "center", gap: 10 }}
+                onMouseEnter={e => e.currentTarget.style.background = "#fafafa"}
+                onMouseLeave={e => e.currentTarget.style.background = "#fff"}
+              >
+                <span style={{
+                  fontFamily: FONT, fontSize: 8, letterSpacing: 1.5, fontWeight: 700,
+                  padding: "2px 6px", borderRadius: 3, flexShrink: 0,
+                  background: bt.badgeBg, color: bt.badgeColor,
+                  border: `1px solid ${bt.chipBorder}`, textTransform: "uppercase",
+                }}>{bt.badgeText}</span>
+                <span style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a", flex: 1 }}>{item.name}</span>
+                {item.sub && <span style={{ fontFamily: FONT, fontSize: 11, color: "#999" }}>{item.sub}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail ────────────────────────────────────────────────────────────────────
 function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode, onBack, onUnseat, upd, updSeat, setGuests, swapSeats }) {
   const isMobile = useIsMobile(860);
@@ -1200,76 +1261,20 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                       })}
                     </div>
                     {/* Search panel — appears when open */}
-                    {isOpen && (() => {
-                      // Local inline search with colour-coded results
-                      // We render a self-contained InlineSearch using a closure state trick via key remount
-                      const InlineSearch = () => {
-                        const [q, setQ] = useState("");
-                        const [res, setRes] = useState([]);
-                        const [open, setOpen] = useState(false);
-                        const ref = useRef();
-                        useEffect(() => {
-                          const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-                          document.addEventListener("mousedown", h);
-                          return () => document.removeEventListener("mousedown", h);
-                        }, []);
-                        const doSearch = val => {
-                          const lq = val.toLowerCase();
-                          if (!lq) { setRes([]); setOpen(false); return; }
-                          const hits = pool.filter(p =>
-                            p.name.toLowerCase().includes(lq) || p.sub.toLowerCase().includes(lq)
-                          ).slice(0, 8);
-                          setRes(hits); setOpen(hits.length > 0);
-                        };
-                        return (
-                          <div ref={ref} style={{ position: "relative", marginTop: 8 }}>
-                            <input
-                              autoFocus
-                              value={q}
-                              onChange={e => { setQ(e.target.value); doSearch(e.target.value); }}
-                              onFocus={() => res.length && setOpen(true)}
-                              placeholder="search wine by glass, cocktail, spirit…"
-                              style={{ ...baseInp, padding: "8px 12px", letterSpacing: 0.3 }}
-                            />
-                            {open && (
-                              <div style={{
-                                position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
-                                background: "#fff", border: "1px solid #e0e0e0", borderRadius: 4,
-                                zIndex: 300, boxShadow: "0 8px 28px rgba(0,0,0,0.10)", overflow: "hidden",
-                              }}>
-                                {res.map(item => {
-                                  const bt = BTYPE[item.__type];
-                                  return (
-                                    <div key={item.id}
-                                      onMouseDown={() => {
-                                        if (item.__type === "wine")     updSeat(seat.id, "glasses",   [...glasses,      item.raw]);
-                                        if (item.__type === "cocktail") updSeat(seat.id, "cocktails", [...cocktailList, item.raw]);
-                                        if (item.__type === "spirit")   updSeat(seat.id, "spirits",   [...spiritList,   item.raw]);
-                                        setQ(""); setRes([]); setOpen(false);
-                                        setBeverageOpen(prev => ({ ...prev, [seat.id]: false }));
-                                      }}
-                                      style={{
-                                        padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f5f5f5",
-                                        display: "flex", alignItems: "center", gap: 10,
-                                      }}>
-                                      <span style={{
-                                        fontFamily: FONT, fontSize: 8, letterSpacing: 1.5, fontWeight: 700,
-                                        padding: "2px 6px", borderRadius: 3, flexShrink: 0,
-                                        background: bt.badgeBg, color: bt.badgeColor,
-                                        border: `1px solid ${bt.chipBorder}`, textTransform: "uppercase",
-                                      }}>{bt.badgeText}</span>
-                                      <span style={{ fontFamily: FONT, fontSize: 12, color: "#1a1a1a", flex: 1 }}>{item.name}</span>
-                                      {item.sub && <span style={{ fontFamily: FONT, fontSize: 11, color: "#999" }}>{item.sub}</span>}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      };
-                      return <InlineSearch key={seat.id} />;
-                    })()}
+                    {isOpen && (
+                      <UnifiedDrinkSearch
+                        key={seat.id}
+                        pool={pool}
+                        BTYPE={BTYPE}
+                        onSelect={item => {
+                          if (item.__type === "wine")     updSeat(seat.id, "glasses",   [...glasses,      item.raw]);
+                          if (item.__type === "cocktail") updSeat(seat.id, "cocktails", [...cocktailList, item.raw]);
+                          if (item.__type === "spirit")   updSeat(seat.id, "spirits",   [...spiritList,   item.raw]);
+                          setBeverageOpen(prev => ({ ...prev, [seat.id]: false }));
+                        }}
+                        onClose={() => setBeverageOpen(prev => ({ ...prev, [seat.id]: false }))}
+                      />
+                    )}
                   </div>
                 );
               })()}
@@ -1567,7 +1572,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── SummaryModal ─────────────────────────────────────────────────────────────
-function SummaryModal({ tables, wines = [], cocktails = [], spirits = [], onClose }) {
+function SummaryModal({ tables, dishes = [], wines = [], cocktails = [], spirits = [], onClose }) {
   const isMobile = useIsMobile(700);
   const activeTables = tables.filter(t => t.active || t.arrivedAt);
 
@@ -1631,7 +1636,8 @@ function SummaryModal({ tables, wines = [], cocktails = [], spirits = [], onClos
             </div>
           ) : activeTables.map(t => {
             const hasDrinks = (t.seats || []).some(s =>
-              (s.glasses||[]).length || (s.cocktails||[]).length || (s.spirits||[]).length
+              (s.glasses||[]).length || (s.cocktails||[]).length || (s.spirits||[]).length ||
+              dishes.some(d => s.extras?.[d.id]?.ordered)
             );
             return (
               <div key={t.id} style={{
@@ -1668,9 +1674,9 @@ function SummaryModal({ tables, wines = [], cocktails = [], spirits = [], onClos
                         ...(s.cocktails || []).map(c => ({ type: "cocktail", dot: "#c9a8e0", color: "#7a507a", label: c.name + (c.notes ? ` · ${c.notes}` : "") })),
                         ...(s.spirits   || []).map(sp => ({ type: "spirit",  dot: "#d8b48c", color: "#a07040", label: sp.name + (sp.notes ? ` · ${sp.notes}` : "") })),
                       ];
-                      const extras = [];
+                      const extras = dishes.filter(d => s.extras?.[d.id]?.ordered);
                       const restr  = (t.restrictions||[]).filter(r => r.pos === s.id);
-                      if (!beverages.length && !s.pairing) return null;
+                      if (!beverages.length && !extras.length && !s.pairing) return null;
                       const pc = { "Wine": "#8a6030", "Non-Alc": "#1f5f73", "Premium": "#3a3a7a", "Our Story": "#2a6a4a" };
                       return (
                         <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 0", borderTop: "1px solid #f8f8f8" }}>
@@ -2127,7 +2133,7 @@ export default function App() {
           onClose={() => setAdminOpen(false)} />
       )}
       {summaryOpen && (
-        <SummaryModal tables={tables} wines={wines} cocktails={cocktails} spirits={spirits} onClose={() => setSummaryOpen(false)} />
+        <SummaryModal tables={tables} dishes={dishes} wines={wines} cocktails={cocktails} spirits={spirits} onClose={() => setSummaryOpen(false)} />
       )}
     </div>
   );
