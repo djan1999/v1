@@ -1478,7 +1478,7 @@ function DisplayBoard({ tables, dishes }) {
 }
 
 // ── PIN codes ─────────────────────────────────────────────────────────────────
-const PINS = { admin: "3412", service: "2021" };
+const PINS = { admin: "3412", service: "" };
 
 // ── LoginScreen ───────────────────────────────────────────────────────────────
 function LoginScreen({ onEnter }) {
