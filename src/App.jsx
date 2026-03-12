@@ -1586,8 +1586,7 @@ function SummaryModal({ tables, dishes, onClose }) {
       if (t.bottleWine) lines.push(`  Bottle: ${t.bottleWine.name} · ${t.bottleWine.producer} · ${t.bottleWine.vintage}`);
       lines.push("");
     });
-    navigator.clipboard?.writeText(lines.join("
-")).catch(() => {});
+    navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
   };
 
   return (
