@@ -1001,8 +1001,7 @@ function TableSeatDetail({ table, dishes, isMobile }) {
 function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode, onBack, upd, updSeat, setGuests, swapSeats }) {
   const isMobile = useIsMobile(860);
   const row1 = isMobile ? "34px 68px 1fr 28px" : "38px 75px 1fr 28px";
-  const [activeDrinkTab, setActiveDrinkTab] = useState({});
-  const getDrinkTab = seatId => activeDrinkTab[seatId] || "glass";
+
 
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: isMobile ? "20px 12px 28px" : "24px 16px", overflowX: "hidden" }}>
@@ -1129,70 +1128,49 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], mode,
                 : <div />}
             </div>
 
-            <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{
-                border: "1px solid #ececec", borderRadius: 10, background: "#fcfcfc",
-                padding: isMobile ? "10px" : "12px", display: "flex", flexDirection: "column", gap: 10,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ ...fieldLabel, marginBottom: 0, color: "#444" }}>Beverages</div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {[
-                      { key: "glass",    label: "By Glass", color: "#555",   border: "#dedede", bg: "#ffffff" },
-                      { key: "cocktail", label: "Cocktail", color: "#7a507a", border: "#dcc9ea", bg: "#fcf9ff" },
-                      { key: "spirit",   label: "Spirit",   color: "#a07040", border: "#e5d3bb", bg: "#fffaf5" },
-                    ].map(tabItem => {
-                      const on = getDrinkTab(seat.id) === tabItem.key;
-                      return (
-                        <button key={tabItem.key} onClick={() => setActiveDrinkTab(prev => ({ ...prev, [seat.id]: tabItem.key }))} style={{
-                          fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "6px 10px",
-                          border: "1px solid", borderColor: on ? tabItem.border : "#e8e8e8", borderRadius: 999,
-                          cursor: "pointer", background: on ? tabItem.bg : "#fff", color: on ? tabItem.color : "#555",
-                          fontWeight: on ? 600 : 500,
-                        }}>{tabItem.label}</button>
-                      );
-                    })}
+            <div style={{ paddingLeft: isMobile ? 0 : 48, display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* ── Compact beverage rows: label | search | chips ── */}
+              {[
+                { field: "glasses",   label: "Glass",    dot: "#bbb",    chipBg: "#f5f5f5",  chipColor: "#333",    chipBorder: "#ddd",
+                  search: <WineSearch wineObj={null} wines={wines} byGlass={true} compact placeholder="by glass…"
+                    onChange={w => { if (!w) return; updSeat(seat.id, "glasses", [...glasses, w]); }} />,
+                  items: glasses, fmt: w => `${w?.name} · ${w?.vintage}` },
+                { field: "cocktails", label: "Cocktail", dot: "#c9a8e0", chipBg: "#f9f5ff",  chipColor: "#7a507a", chipBorder: "#dcc9ea",
+                  search: <DrinkSearch list={cocktails} accentColor="#7a507a" placeholder="cocktail…"
+                    onChange={d => { if (!d) return; updSeat(seat.id, "cocktails", [...cocktailList, d]); }} />,
+                  items: cocktailList, fmt: d => d?.name + (d?.notes ? ` · ${d.notes}` : "") },
+                { field: "spirits",   label: "Spirit",   dot: "#d8b48c", chipBg: "#fffaf5",  chipColor: "#a07040", chipBorder: "#e5d3bb",
+                  search: <DrinkSearch list={spirits} accentColor="#a07040" placeholder="spirit…"
+                    onChange={d => { if (!d) return; updSeat(seat.id, "spirits", [...spiritList, d]); }} />,
+                  items: spiritList, fmt: d => d?.name + (d?.notes ? ` · ${d.notes}` : "") },
+              ].map(row => (
+                <div key={row.field} style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
+                  {/* Label */}
+                  <div style={{
+                    fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#777",
+                    textTransform: "uppercase", paddingTop: 10, flexShrink: 0, width: 52,
+                  }}>{row.label}</div>
+                  {/* Search box — fixed width */}
+                  <div style={{ width: isMobile ? 130 : 150, flexShrink: 0 }}>{row.search}</div>
+                  {/* Chips */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, flex: 1, minWidth: 0, paddingTop: 4 }}>
+                    {row.items.map((item, idx) => (
+                      <span key={idx} style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        fontFamily: FONT, fontSize: 11, color: row.chipColor,
+                        background: row.chipBg, border: `1px solid ${row.chipBorder}`,
+                        borderRadius: 999, padding: "3px 8px 3px 6px",
+                        whiteSpace: "nowrap", maxWidth: 180,
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: row.dot, flexShrink: 0 }} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{row.fmt(item)}</span>
+                        <button onClick={() => updSeat(seat.id, row.field, row.items.filter((_, i) => i !== idx))}
+                          style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+                      </span>
+                    ))}
                   </div>
                 </div>
-
-                <div style={{ flex: 1, minWidth: isMobile ? "100%" : 260 }}>
-                  {getDrinkTab(seat.id) === "glass" ? (
-                    <WineSearch wineObj={null} wines={wines} byGlass={true} compact={false} placeholder="search by glass…"
-                      onChange={w => { if (!w) return; updSeat(seat.id, "glasses", [...glasses, w]); }} />
-                  ) : getDrinkTab(seat.id) === "cocktail" ? (
-                    <DrinkSearch list={cocktails} accentColor="#7a507a" placeholder="search cocktail…"
-                      onChange={d => { if (!d) return; updSeat(seat.id, "cocktails", [...cocktailList, d]); }} />
-                  ) : (
-                    <DrinkSearch list={spirits} accentColor="#a07040" placeholder="search spirit…"
-                      onChange={d => { if (!d) return; updSeat(seat.id, "spirits", [...spiritList, d]); }} />
-                  )}
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-                  {[
-                    { items: glasses,      label: "By Glass", color: "#444",   emptyColor: "#777",   emptyBorder: "#e2e2e2", emptyBg: "#fff",    barBg: "#d8d8d8", cardBorder: "#e2e2e2", cardBg: "#fff",    field: "glasses" },
-                    { items: cocktailList, label: "Cocktail", color: "#6f4d85", emptyColor: "#7f7090", emptyBorder: "#dcc9ea", emptyBg: "#fcf9ff", barBg: "#cfaee2", cardBorder: "#e5d7f0", cardBg: "#fcf9ff", field: "cocktails" },
-                    { items: spiritList,   label: "Spirit",   color: "#8a6236", emptyColor: "#8a6d4a", emptyBorder: "#e5d3bb", emptyBg: "#fffaf5", barBg: "#d8b48c", cardBorder: "#eadfce", cardBg: "#fffaf5", field: "spirits" },
-                  ].map(col => (
-                    <div key={col.field} style={{ minWidth: 0 }}>
-                      <div style={{ ...fieldLabel, marginBottom: 6, color: col.color }}>{col.label}</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {col.items.length === 0 ? (
-                          <div style={{ fontFamily: FONT, fontSize: 11, color: col.emptyColor, padding: "8px 10px", border: `1px dashed ${col.emptyBorder}`, borderRadius: 8, background: col.emptyBg }}>none</div>
-                        ) : col.items.map((item, idx) => (
-                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 9px", border: `1px solid ${col.cardBorder}`, borderRadius: 8, background: col.cardBg }}>
-                            <div style={{ width: 8, alignSelf: "stretch", borderRadius: 999, background: col.barBg, flexShrink: 0 }} />
-                            <div style={{ flex: 1, minWidth: 0, fontFamily: FONT, fontSize: 11, color: "#1a1a1a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {item?.name}{col.field === "glasses" ? ` · ${item?.producer} · ${item?.vintage}` : (item?.notes ? ` · ${item.notes}` : "")}
-                            </div>
-                            <button onClick={() => updSeat(seat.id, col.field, col.items.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ))}
 
               {dishes.length > 0 && (
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
