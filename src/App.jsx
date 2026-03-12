@@ -893,17 +893,23 @@ function Card({ table, mode, onClick, onSeat, onClear, onEditRes }) {
             border: "1px solid #e0e0e0", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#444",
           }}>{hasRes ? "edit" : "reserve"}</button>
         )}
-        {!table.active && (mode === "admin" || mode === "service") && (
+        {!table.active && hasRes && (mode === "admin" || mode === "service") && (
           <button onClick={onSeat} style={{
             fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
             border: "1px solid #cce8cc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#70b870",
           }}>seat</button>
         )}
-        {table.active && (
-          <button onClick={onClear} style={{
-            fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
-            border: "1px solid #ffcccc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#e07070",
-          }}>clear</button>
+        {table.active && mode === "admin" && (
+          <>
+            <button onClick={onUnseat} style={{
+              fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
+              border: "1px solid #e8d8b8", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#a07040",
+            }}>unseat</button>
+            <button onClick={onClear} style={{
+              fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px",
+              border: "1px solid #ffcccc", borderRadius: 2, cursor: "pointer", background: "#fff", color: "#e07070",
+            }}>clear</button>
+          </>
         )}
       </div>
     </div>
@@ -2049,10 +2055,12 @@ export default function App() {
                 fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
                 border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
               }}>SUMMARY</button>
-              <button onClick={() => setAdminOpen(true)} style={{
-                fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
-                border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
-              }}>MENU</button>
+              {mode === "admin" && (
+                <button onClick={() => setAdminOpen(true)} style={{
+                  fontFamily: FONT, fontSize: 9, letterSpacing: 2, padding: "6px 10px",
+                  border: "1px solid #e8e8e8", borderRadius: 999, cursor: "pointer", background: "#fff", color: "#1a1a1a",
+                }}>MENU</button>
+              )}
             </>
           )}
           <span style={syncPillStyle(syncLive)}>{syncLabel}</span>
@@ -2083,7 +2091,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT }}>
       <GlobalStyle />
-      <Header modeLabel={mode} showMenu={mode === "admin"} />
+      <Header modeLabel={mode} showMenu={mode === "admin" || mode === "service"} />
 
       {sel === null ? (
         <div style={{ padding: "20px 12px", maxWidth: 960, margin: "0 auto" }}>
@@ -2092,6 +2100,7 @@ export default function App() {
               <Card key={t.id} table={t} mode={mode}
                 onClick={() => (t.active || (mode === "service" && (t.resName || t.resTime))) && setSel(t.id)}
                 onSeat={() => seatTable(t.id)}
+                onUnseat={() => unseatTable(t.id)}
                 onClear={() => clear(t.id)}
                 onEditRes={() => mode === "admin" && setResModal(t.id)}
               />
@@ -2121,7 +2130,7 @@ export default function App() {
           onClose={() => setAdminOpen(false)} />
       )}
       {summaryOpen && (
-        <SummaryModal tables={tables} dishes={dishes} onClose={() => setSummaryOpen(false)} />
+        <SummaryModal tables={tables} wines={wines} cocktails={cocktails} spirits={spirits} onClose={() => setSummaryOpen(false)} />
       )}
     </div>
   );
