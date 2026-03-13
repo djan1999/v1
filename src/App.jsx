@@ -1551,6 +1551,21 @@ function DisplayBoard({ tables, dishes, upd }) {
   const TableCard = ({ t }) => {
     const isSeated   = t.active;
     const allRestr   = (t.restrictions || []).filter(r => r.note);
+    const [assigningIdx, setAssigningIdx] = useState(null); // index in t.restrictions of the one being assigned
+
+    const unassigned = (t.restrictions || [])
+      .map((r, i) => ({ ...r, _i: i }))
+      .filter(r => !r.pos && r.note);
+
+    const assignTo = (seatId) => {
+      if (assigningIdx === null || !upd) return;
+      const updated = (t.restrictions || []).map((r, i) =>
+        i === assigningIdx ? { ...r, pos: seatId } : r
+      );
+      upd(t.id, "restrictions", updated);
+      setAssigningIdx(null);
+    };
+
     return (
       <div style={{
         background: "#fff",
@@ -1630,13 +1645,37 @@ function DisplayBoard({ tables, dishes, upd }) {
           })}
         </div>
 
-        {/* Unassigned restrictions warning */}
-        {(t.restrictions || []).filter(r => !r.pos && r.note).length > 0 && (
+        {/* Unassigned restrictions warning — tap a chip to assign it to a seat */}
+        {unassigned.length > 0 && (
           <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", background: "#fff8f8", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 2, color: "#b04040", textTransform: "uppercase", flexShrink: 0 }}>⚠ Unassigned</span>
-            {(t.restrictions || []).filter(r => !r.pos && r.note).map((r, i) => (
-              <span key={i} style={{ fontFamily: FONT, fontSize: 10, color: "#b04040", fontWeight: 500 }}>{r.note}</span>
+            {unassigned.map((r) => (
+              <span key={r._i} onClick={() => setAssigningIdx(assigningIdx === r._i ? null : r._i)} style={{
+                fontFamily: FONT, fontSize: 10, color: assigningIdx === r._i ? "#fff" : "#b04040",
+                background: assigningIdx === r._i ? "#b04040" : "#fef0f0",
+                border: "1px solid #e09090", borderRadius: 2, padding: "2px 8px",
+                fontWeight: 500, cursor: "pointer", userSelect: "none",
+              }}>{r.note} {assigningIdx === r._i ? "→ pick seat" : "→"}</span>
             ))}
+          </div>
+        )}
+
+        {/* Seat assignment prompt */}
+        {assigningIdx !== null && (
+          <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", background: "#fff3f3", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, color: "#b04040", flexShrink: 0 }}>Assign to:</span>
+            {(t.seats || []).map(s => (
+              <button key={s.id} onClick={() => assignTo(s.id)} style={{
+                fontFamily: FONT, fontSize: 10, fontWeight: 700, padding: "4px 10px",
+                border: "1px solid #e09090", borderRadius: 2, cursor: "pointer",
+                background: "#fff", color: "#b04040",
+              }}>P{s.id}</button>
+            ))}
+            <button onClick={() => setAssigningIdx(null)} style={{
+              fontFamily: FONT, fontSize: 9, padding: "4px 8px", marginLeft: 4,
+              border: "1px solid #eee", borderRadius: 2, cursor: "pointer",
+              background: "#fff", color: "#aaa",
+            }}>cancel</button>
           </div>
         )}
 
@@ -1644,24 +1683,16 @@ function DisplayBoard({ tables, dishes, upd }) {
         {isSeated && t.seats && t.seats.length > 0 ? (
           <div style={{ padding: "8px 0 6px" }}>
             {t.seats.map(s => {
-              const ws      = waterStyle(s.water);
-              const pc      = pairingColors[s.pairing];
-              const restr   = allRestr.filter(r => r.pos === s.id);
-              const extras  = dishes.filter(d => s.extras?.[d.id]?.ordered);
+              const ws     = waterStyle(s.water);
+              const pc     = pairingColors[s.pairing];
+              const restr  = allRestr.filter(r => r.pos === s.id);
+              const extras = dishes.filter(d => s.extras?.[d.id]?.ordered);
               const hasContent = (s.water && s.water !== "—") || s.pairing || restr.length > 0 || extras.length > 0;
-
-              if (!hasContent) return (
-                <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center", padding: "5px 14px", borderBottom: "1px solid #f8f8f8" }}>
-                  <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 700, minWidth: 22, color: "#ddd" }}>P{s.id}</span>
-                  <span style={{ fontFamily: FONT, fontSize: 10, color: "#e0e0e0" }}>—</span>
-                </div>
-              );
 
               return (
                 <div key={s.id} style={{
                   display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
-                  padding: "5px 14px",
-                  borderBottom: "1px solid #f8f8f8",
+                  padding: "5px 14px", borderBottom: "1px solid #f8f8f8",
                   background: restr.length ? "#fffaf9" : "transparent",
                 }}>
                   <span style={{
@@ -1669,20 +1700,20 @@ function DisplayBoard({ tables, dishes, upd }) {
                     color: restr.length ? "#b04040" : "#999", letterSpacing: 0.5,
                   }}>P{s.id}</span>
 
+                  {!hasContent && <span style={{ fontFamily: FONT, fontSize: 10, color: "#e0e0e0" }}>—</span>}
+
                   {s.water && s.water !== "—" && (
                     <span style={{
                       fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
                       background: ws.bg || "#f0f0f0", color: "#333", border: "1px solid #e0e0e0",
                     }}>{s.water}</span>
                   )}
-
                   {s.pairing && pc && (
                     <span style={{
                       fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
                       background: pc.bg, border: `1px solid ${pc.border}`, color: pc.color, fontWeight: 500,
                     }}>{s.pairing}</span>
                   )}
-
                   {extras.map(d => {
                     const ex = s.extras[d.id];
                     return (
@@ -1692,7 +1723,6 @@ function DisplayBoard({ tables, dishes, upd }) {
                       }}>{d.name}{ex?.pairing && ex.pairing !== "—" ? ` · ${ex.pairing}` : ""}</span>
                     );
                   })}
-
                   {restr.map((r, i) => (
                     <span key={i} style={{
                       fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
@@ -1953,9 +1983,13 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
   const deleteEntry = async id => {
     if (!supabase) return;
     setDeleting(id);
-    await supabase.from("service_archive").delete().eq("id", id);
-    setEntries(e => e.filter(x => x.id !== id));
-    if (expanded === id) setExpanded(null);
+    const { error } = await supabase.from("service_archive").delete().eq("id", id);
+    if (error) {
+      alert("Delete failed: " + error.message + "\n\nYou may need to enable DELETE on the service_archive table in Supabase (Policies → anon → DELETE).");
+    } else {
+      setEntries(e => e.filter(x => x.id !== id));
+      if (expanded === id) setExpanded(null);
+    }
     setDeleting(null);
   };
 
@@ -1963,9 +1997,13 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
     if (!supabase) return;
     if (!window.confirm("Delete ALL archive entries? This cannot be undone.")) return;
     setDeleting("all");
-    await supabase.from("service_archive").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    setEntries([]);
-    setExpanded(null);
+    const { error } = await supabase.from("service_archive").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    if (error) {
+      alert("Delete failed: " + error.message + "\n\nYou may need to enable DELETE on the service_archive table in Supabase (Policies → anon → DELETE).");
+    } else {
+      setEntries([]);
+      setExpanded(null);
+    }
     setDeleting(null);
   };
 
