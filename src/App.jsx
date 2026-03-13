@@ -1670,6 +1670,8 @@ function DisplayBoard({ tables, dishes }) {
             ))}
           </div>
         ) : null}
+
+
       </div>
     );
   };
@@ -1843,9 +1845,6 @@ function SummaryModal({ tables, dishes = [], onClose }) {
               {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
               {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px", border: "1px solid #e0e0e0", borderRadius: 2, color: "#555", background: "#fff" }}>{t.menuType}</span>}
               {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
-              {(t.bottleWines || []).map((w, i) => (
-                <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
-              ))}
               {t.notes     && <span style={{ fontFamily: FONT, fontSize: 10, color: "#999", fontStyle: "italic", marginLeft: "auto" }}>{t.notes}</span>}
             </div>
             <div style={{ padding: "8px 12px 12px" }}>
@@ -1864,6 +1863,18 @@ function SummaryModal({ tables, dishes = [], onClose }) {
                 );
               })}
             </div>
+            {(t.bottleWines || []).length > 0 && (
+              <div style={{ padding: "10px 16px 14px", borderTop: "1px solid #f5f5f5", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 2, color: "#bbb", textTransform: "uppercase", marginBottom: 2 }}>Bottles</div>
+                {(t.bottleWines || []).map((w, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 500, color: "#1a1a1a" }}>🍾 {w.name}</span>
+                    {w.producer && <span style={{ fontFamily: FONT, fontSize: 11, color: "#888" }}>{w.producer}</span>}
+                    {w.vintage  && <span style={{ fontFamily: FONT, fontSize: 11, color: "#aaa", letterSpacing: 0.5 }}>{w.vintage}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
