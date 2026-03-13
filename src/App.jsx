@@ -1165,6 +1165,24 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], beers
         </div>
       )}
 
+      {/* Quick set water for all seats */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "10px 12px", background: "#fafafa", borderRadius: 4, border: "1px solid #f0f0f0" }}>
+        <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 2, color: "#888", textTransform: "uppercase", flexShrink: 0 }}>All water</span>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {WATER_OPTS.map(opt => (
+            <button key={opt} onClick={() => table.seats.forEach(s => updSeat(s.id, "water", opt))} style={{
+              fontFamily: FONT, fontSize: 11, letterSpacing: 0.5,
+              padding: "5px 10px", border: "1px solid",
+              borderColor: table.seats.every(s => s.water === opt) ? "#1a1a1a" : "#e0e0e0",
+              borderRadius: 2, cursor: "pointer",
+              background: table.seats.every(s => s.water === opt) ? "#1a1a1a" : "#fff",
+              color: table.seats.every(s => s.water === opt) ? "#fff" : "#555",
+              transition: "all 0.1s",
+            }}>{opt}</button>
+          ))}
+        </div>
+      </div>
+
       {/* Column header row 1 */}
       <div style={{ display: "grid", gridTemplateColumns: row1, gap: 10, alignItems: "center", marginBottom: 4 }}>
         {["", "Water", "Pairing", ""].map((h, i) => (
@@ -1392,6 +1410,20 @@ function Detail({ table, dishes, wines = [], cocktails = [], spirits = [], beers
             style={{ ...baseInp, minHeight: 68, resize: "vertical", lineHeight: 1.5 }} />
         </div>
       </div>
+
+      {/* Sticky bottom back button */}
+      <div style={{
+        position: "sticky", bottom: 0, left: 0, right: 0,
+        padding: "12px 0 20px", marginTop: 28,
+        background: "linear-gradient(to bottom, transparent, #fff 30%)",
+      }}>
+        <button onClick={onBack} style={{
+          width: "100%", fontFamily: FONT, fontSize: 11, letterSpacing: 2,
+          padding: "14px", border: "1px solid #e0e0e0", borderRadius: 4,
+          cursor: "pointer", background: "#fff", color: "#555",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}>← all tables</button>
+      </div>
     </div>
   );
 }
@@ -1515,8 +1547,6 @@ function DisplayBoard({ tables, dishes }) {
   const TableCard = ({ t }) => {
     const isSeated   = t.active;
     const allRestr   = (t.restrictions || []).filter(r => r.note);
-    const hasBottles = (t.bottleWines || []).length > 0;
-
     return (
       <div style={{
         background: "#fff",
@@ -1561,13 +1591,10 @@ function DisplayBoard({ tables, dishes }) {
           </div>
         </div>
 
-        {/* Notes + bottles row (if any) */}
-        {(t.notes || hasBottles) && (
-          <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", background: "#fafafa" }}>
-            {hasBottles && (t.bottleWines || []).map((w, i) => (
-              <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
-            ))}
-            {t.notes && <span style={{ fontFamily: FONT, fontSize: 11, color: "#777", fontStyle: "italic" }}>{t.notes}</span>}
+        {/* Notes row */}
+        {t.notes && (
+          <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", background: "#fafafa" }}>
+            <span style={{ fontFamily: FONT, fontSize: 11, color: "#777", fontStyle: "italic" }}>{t.notes}</span>
           </div>
         )}
 
