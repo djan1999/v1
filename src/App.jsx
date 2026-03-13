@@ -1015,7 +1015,7 @@ function Card({ table, mode, onClick, onSeat, onUnseat, onClear, onEditRes }) {
             </span>
           )}
           {table.pace && (() => {
-            const pc = { Slow: { color: "#7a5020", bg: "#fdf4e8", border: "#c8a060" }, Normal: { color: "#2a5a2a", bg: "#edf8e8", border: "#88bb70" }, Fast: { color: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" } }[table.pace] || {};
+            const pc = { Slow: { color: "#7a5020", bg: "#fdf4e8", border: "#c8a060" }, Fast: { color: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" } }[table.pace] || {};
             return <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, border: `1px solid ${pc.border}`, borderRadius: 2, padding: "2px 6px", background: pc.bg, color: pc.color }}>{table.pace}</span>;
           })()}
           {table.active && (
@@ -1526,11 +1526,6 @@ function TableSeatDetail({ table, dishes, isMobile }) {
 
 // ── Display Board ─────────────────────────────────────────────────────────────
 function DisplayBoard({ tables, dishes, upd }) {
-  const [now, setNow] = useState(fmt(new Date()));
-  useEffect(() => {
-    const t = setInterval(() => setNow(fmt(new Date())), 10000);
-    return () => clearInterval(t);
-  }, []);
   const isMobile = useIsMobile(700);
 
   const pairingColors = {
@@ -1596,7 +1591,7 @@ function DisplayBoard({ tables, dishes, upd }) {
             }
             {t.menuType && <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: "1px solid #e8e8e8", color: "#555" }}>{t.menuType}</span>}
             {t.pace && (() => {
-              const pc = { Slow: { color: "#7a5020", bg: "#fdf4e8", border: "#c8a060" }, Normal: { color: "#2a5a2a", bg: "#edf8e8", border: "#88bb70" }, Fast: { color: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" } }[t.pace] || {};
+              const pc = { Slow: { color: "#7a5020", bg: "#fdf4e8", border: "#c8a060" }, Fast: { color: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" } }[t.pace] || {};
               return <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: `1px solid ${pc.border}`, background: pc.bg, color: pc.color, fontWeight: 600 }}>{t.pace}</span>;
             })()}
             {t.guestType === "hotel" && t.room && <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: "1px solid #d4b888", color: "#a07040", background: "#fffaf2", fontWeight: 600 }}>#{t.room}</span>}
@@ -1614,7 +1609,7 @@ function DisplayBoard({ tables, dishes, upd }) {
         {/* Pace selector — visible on all tables, usable directly from display */}
         <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 2, color: "#bbb", textTransform: "uppercase", flexShrink: 0 }}>Pace</span>
-          {["Slow", "Normal", "Fast"].map(p => {
+          {["Slow", "Fast"].map(p => {
             const colors = {
               Slow:   { on: "#7a5020", bg: "#fdf4e8", border: "#c8a060" },
               Normal: { on: "#2a5a2a", bg: "#edf8e8", border: "#88bb70" },
@@ -1729,8 +1724,6 @@ function DisplayBoard({ tables, dishes, upd }) {
       padding: isMobile ? "16px 12px 40px" : "24px 24px 48px",
       background: "#fafafa", minHeight: "calc(100vh - 52px)",
     }}>
-      {/* Live clock */}
-      <div style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#aaa", textAlign: "right", marginBottom: 16 }}>{now}</div>
       {!hasAny && (
         <div style={{ fontFamily: FONT, fontSize: 10, color: "#aaa", textAlign: "center", marginTop: 80, letterSpacing: 2 }}>
           no reservations
