@@ -1579,12 +1579,14 @@ function DisplayBoard({ tables, dishes }) {
               const pc      = pairingColors[s.pairing];
               const restr   = allRestr.filter(r => r.pos === s.id);
               const extras  = dishes.filter(d => s.extras?.[d.id]?.ordered);
-              const allBevs = [
-                ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
-                ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
-                ...(s.spirits   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.spirit })),
-                ...(s.beers     || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.beer })),
-              ];
+              const hasContent = (s.water && s.water !== "—") || s.pairing || restr.length > 0 || extras.length > 0;
+
+              if (!hasContent) return (
+                <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center", padding: "5px 14px", borderBottom: "1px solid #f8f8f8" }}>
+                  <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 700, minWidth: 22, color: "#ddd" }}>P{s.id}</span>
+                  <span style={{ fontFamily: FONT, fontSize: 10, color: "#e0e0e0" }}>—</span>
+                </div>
+              );
 
               return (
                 <div key={s.id} style={{
@@ -1593,13 +1595,11 @@ function DisplayBoard({ tables, dishes }) {
                   borderBottom: "1px solid #f8f8f8",
                   background: restr.length ? "#fffaf9" : "transparent",
                 }}>
-                  {/* Seat number */}
                   <span style={{
                     fontFamily: FONT, fontSize: 10, fontWeight: 700, minWidth: 22,
                     color: restr.length ? "#b04040" : "#999", letterSpacing: 0.5,
                   }}>P{s.id}</span>
 
-                  {/* Water */}
                   {s.water && s.water !== "—" && (
                     <span style={{
                       fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
@@ -1607,7 +1607,6 @@ function DisplayBoard({ tables, dishes }) {
                     }}>{s.water}</span>
                   )}
 
-                  {/* Pairing */}
                   {s.pairing && pc && (
                     <span style={{
                       fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
@@ -1615,34 +1614,22 @@ function DisplayBoard({ tables, dishes }) {
                     }}>{s.pairing}</span>
                   )}
 
-                  {/* Beverages */}
-                  {allBevs.map((b, i) => (
-                    <span key={i} style={{
-                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
-                      border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg,
-                    }}>{b.label}</span>
-                  ))}
+                  {extras.map(d => {
+                    const ex = s.extras[d.id];
+                    return (
+                      <span key={d.id} style={{
+                        fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
+                        border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8",
+                      }}>{d.name}{ex?.pairing && ex.pairing !== "—" ? ` · ${ex.pairing}` : ""}</span>
+                    );
+                  })}
 
-                  {/* Extra dishes */}
-                  {extras.map(d => (
-                    <span key={d.id} style={{
-                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
-                      border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8",
-                    }}>{d.name}</span>
-                  ))}
-
-                  {/* Restrictions */}
                   {restr.map((r, i) => (
                     <span key={i} style={{
                       fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
                       border: "1px solid #e09090", color: "#b04040", background: "#fef0f0", fontWeight: 500,
                     }}>⚠ {r.note}</span>
                   ))}
-
-                  {/* Empty seat — show placeholder */}
-                  {s.water === "—" && !s.pairing && allBevs.length === 0 && restr.length === 0 && extras.length === 0 && (
-                    <span style={{ fontFamily: FONT, fontSize: 10, color: "#ddd" }}>—</span>
-                  )}
                 </div>
               );
             })}
@@ -1829,6 +1816,9 @@ function SummaryModal({ tables, dishes = [], onClose }) {
               {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
               {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px", border: "1px solid #e0e0e0", borderRadius: 2, color: "#555", background: "#fff" }}>{t.menuType}</span>}
               {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
+              {(t.bottleWines || []).map((w, i) => (
+                <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
+              ))}
               {t.notes     && <span style={{ fontFamily: FONT, fontSize: 10, color: "#999", fontStyle: "italic", marginLeft: "auto" }}>{t.notes}</span>}
             </div>
             <div style={{ padding: "8px 12px 12px" }}>
@@ -1836,19 +1826,12 @@ function SummaryModal({ tables, dishes = [], onClose }) {
                 const ws      = waterStyle(s.water);
                 const restr   = (t.restrictions || []).filter(r => r.pos === s.id);
                 const extras  = dishes.filter(d => s.extras?.[d.id]?.ordered);
-                const allBevs = [
-                  ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
-                  ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
-                  ...(s.spirits   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.spirit })),
-                  ...(s.beers     || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.beer })),
-                ];
                 return (
                   <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", padding: "8px 4px", borderBottom: "1px solid #f5f5f5" }}>
                     <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: restr.length ? "#b04040" : "#999", minWidth: 28, letterSpacing: 0.5 }}>P{s.id}</span>
                     {s.water !== "—" && <span style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, background: ws.bg || "#f5f5f5", color: "#333", border: "1px solid #e0e0e0" }}>{s.water}</span>}
                     {s.pairing && <span style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #e0e0e0", color: pairingColor[s.pairing] || "#555", background: pairingBg[s.pairing] || "#fafafa" }}>{s.pairing}</span>}
-                    {allBevs.map((b, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg }}>{b.label}</span>)}
-                    {extras.map(d  => <span key={d.id} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2, border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8" }}>{d.name}</span>)}
+                    {extras.map(d => { const ex = s.extras[d.id]; return <span key={d.id} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2, border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8" }}>{d.name}{ex?.pairing && ex.pairing !== "—" ? ` · ${ex.pairing}` : ""}</span>; })}
                     {restr.map((r, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2, border: "1px solid #e09090", color: "#b04040", background: "#fef0f0" }}>⚠ {r.note}</span>)}
                   </div>
                 );
