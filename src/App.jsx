@@ -83,7 +83,7 @@ const fmt = d => `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes(
 // ── Blank table factory ───────────────────────────────────────────────────────
 const blankTable = id => ({
   id, active: false, guests: 2, resName: "", resTime: "", guestType: "", room: "",
-  arrivedAt: null, menuType: "", bottleWines: [],
+  arrivedAt: null, menuType: "", pace: "", bottleWines: [],
   restrictions: [], birthday: false, notes: "", seats: makeSeats(2),
 });
 
@@ -1014,6 +1014,10 @@ function Card({ table, mode, onClick, onSeat, onUnseat, onClear, onEditRes }) {
               {table.menuType} menu
             </span>
           )}
+          {table.pace && (() => {
+            const pc = { Slow: { color: "#7a5020", bg: "#fdf4e8", border: "#c8a060" }, Normal: { color: "#2a5a2a", bg: "#edf8e8", border: "#88bb70" }, Fast: { color: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" } }[table.pace] || {};
+            return <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, border: `1px solid ${pc.border}`, borderRadius: 2, padding: "2px 6px", background: pc.bg, color: pc.color }}>{table.pace}</span>;
+          })()}
           {table.active && (
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4a9a6a", display: "inline-block" }} />
           )}
@@ -1521,7 +1525,12 @@ function TableSeatDetail({ table, dishes, isMobile }) {
 }
 
 // ── Display Board ─────────────────────────────────────────────────────────────
-function DisplayBoard({ tables, dishes }) {
+function DisplayBoard({ tables, dishes, upd }) {
+  const [now, setNow] = useState(fmt(new Date()));
+  useEffect(() => {
+    const t = setInterval(() => setNow(fmt(new Date())), 10000);
+    return () => clearInterval(t);
+  }, []);
   const isMobile = useIsMobile(700);
 
   const pairingColors = {
@@ -1586,6 +1595,10 @@ function DisplayBoard({ tables, dishes }) {
               : <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 1, padding: "3px 7px", borderRadius: 2, background: "#eef5fb", border: "1px solid #c6d7ea", color: "#2f5f8a", fontWeight: 700 }}>RESERVED</span>
             }
             {t.menuType && <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: "1px solid #e8e8e8", color: "#555" }}>{t.menuType}</span>}
+            {t.pace && (() => {
+              const pc = { Slow: { color: "#7a5020", bg: "#fdf4e8", border: "#c8a060" }, Normal: { color: "#2a5a2a", bg: "#edf8e8", border: "#88bb70" }, Fast: { color: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" } }[t.pace] || {};
+              return <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: `1px solid ${pc.border}`, background: pc.bg, color: pc.color, fontWeight: 600 }}>{t.pace}</span>;
+            })()}
             {t.guestType === "hotel" && t.room && <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: "1px solid #d4b888", color: "#a07040", background: "#fffaf2", fontWeight: 600 }}>#{t.room}</span>}
             {t.birthday && <span style={{ fontSize: 13 }}>🎂</span>}
           </div>
@@ -1595,6 +1608,40 @@ function DisplayBoard({ tables, dishes }) {
         {t.notes && (
           <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", background: "#fafafa" }}>
             <span style={{ fontFamily: FONT, fontSize: 11, color: "#777", fontStyle: "italic" }}>{t.notes}</span>
+          </div>
+        )}
+
+        {/* Pace selector — visible on all tables, usable directly from display */}
+        <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 2, color: "#bbb", textTransform: "uppercase", flexShrink: 0 }}>Pace</span>
+          {["Slow", "Normal", "Fast"].map(p => {
+            const colors = {
+              Slow:   { on: "#7a5020", bg: "#fdf4e8", border: "#c8a060" },
+              Normal: { on: "#2a5a2a", bg: "#edf8e8", border: "#88bb70" },
+              Fast:   { on: "#6a2a2a", bg: "#fdf0f0", border: "#d08888" },
+            };
+            const sel = t.pace === p;
+            const col = colors[p];
+            return (
+              <button key={p} onClick={() => upd && upd(t.id, "pace", sel ? "" : p)} style={{
+                fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "4px 10px",
+                border: `1px solid ${sel ? col.border : "#e8e8e8"}`,
+                borderRadius: 2, cursor: upd ? "pointer" : "default",
+                background: sel ? col.bg : "#fff",
+                color: sel ? col.on : "#aaa",
+                transition: "all 0.1s",
+              }}>{p}</button>
+            );
+          })}
+        </div>
+
+        {/* Unassigned restrictions warning */}
+        {(t.restrictions || []).filter(r => !r.pos && r.note).length > 0 && (
+          <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", background: "#fff8f8", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 2, color: "#b04040", textTransform: "uppercase", flexShrink: 0 }}>⚠ Unassigned</span>
+            {(t.restrictions || []).filter(r => !r.pos && r.note).map((r, i) => (
+              <span key={i} style={{ fontFamily: FONT, fontSize: 10, color: "#b04040", fontWeight: 500 }}>{r.note}</span>
+            ))}
           </div>
         )}
 
@@ -1682,6 +1729,8 @@ function DisplayBoard({ tables, dishes }) {
       padding: isMobile ? "16px 12px 40px" : "24px 24px 48px",
       background: "#fafafa", minHeight: "calc(100vh - 52px)",
     }}>
+      {/* Live clock */}
+      <div style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#aaa", textAlign: "right", marginBottom: 16 }}>{now}</div>
       {!hasAny && (
         <div style={{ fontFamily: FONT, fontSize: 10, color: "#aaa", textAlign: "center", marginTop: 80, letterSpacing: 2 }}>
           no reservations
@@ -1696,7 +1745,9 @@ function DisplayBoard({ tables, dishes }) {
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
               <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#666", textTransform: "uppercase" }}>{time}</span>
               <div style={{ flex: 1, height: 1, background: "#e0e0e0" }} />
-              <span style={{ fontFamily: FONT, fontSize: 10, color: "#aaa" }}>{seatedCount}/{rowTables.length} seated</span>
+              <span style={{ fontFamily: FONT, fontSize: 10, color: "#aaa" }}>
+                {seatedCount}/{rowTables.length} seated · {rowTables.reduce((a,t) => a + (t.guests||0), 0)} guests
+              </span>
             </div>
             {/* Cards — 2 columns on desktop, 1 on mobile */}
             <div style={{
@@ -2585,7 +2636,7 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: "#fff", fontFamily: FONT, overflowX: "hidden", WebkitTextSizeAdjust: "100%" }}>
       <GlobalStyle />
       <Header modeLabel="DISPLAY" showSummary={false} showMenu={false} showArchive={false} {...hProps} />
-      <DisplayBoard tables={tables} dishes={dishes} />
+      <DisplayBoard tables={tables} dishes={dishes} upd={upd} />
     </div>
   );
 
