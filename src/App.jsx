@@ -831,8 +831,8 @@ function ReservationModal({ table, tables = [], onSave, onClose }) {
 
           <div>
             <div style={fieldLabel}>Sitting</div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 8 }}>
-              {["18:00","18:30","19:00"].map(t => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+              {["18:00","18:30","19:00","19:15"].map(t => (
                 <button key={t} onClick={() => setTime(t)} style={{
                   fontFamily: FONT, fontSize: 13, letterSpacing: 1,
                   padding: "14px 0", flex: 1, border: "1px solid",
@@ -1490,113 +1490,182 @@ function TableSeatDetail({ table, dishes, isMobile }) {
 
 // ── Display Board ─────────────────────────────────────────────────────────────
 function DisplayBoard({ tables, dishes }) {
-  const [expanded, setExp] = useState(null);
   const isMobile = useIsMobile(700);
 
-  // Group tables into sitting rows, 19:15 folds into 19:00
-  const visible = tables.filter(t => t.active || t.resTime || t.resName);
+  const pairingColors = {
+    "Wine":      { color: "#7a5020", bg: "#f5ead8", border: "#c8a060" },
+    "Non-Alc":   { color: "#1f5f73", bg: "#e8f7fb", border: "#7fc6db" },
+    "Premium":   { color: "#3a3a7a", bg: "#eaeaf5", border: "#8888bb" },
+    "Our Story": { color: "#2a6a4a", bg: "#e0f5ea", border: "#5aaa7a" },
+  };
 
-  const rowsData = SITTING_TIMES.map(time => {
-    const rowTables = visible
+  // Group by sitting time (19:15 folds into 19:00)
+  const visible = tables.filter(t => t.active || t.resTime || t.resName);
+  const rowsData = SITTING_TIMES.map(time => ({
+    time,
+    tables: visible
       .filter(t => t.resTime === time || (time === "19:00" && t.resTime === "19:15"))
       .sort((a, b) => {
-        // Seated (arrived) first, then by arrivedAt, then by resTime
         if (a.active !== b.active) return a.active ? -1 : 1;
-        const ta = a.arrivedAt || a.resTime || "99:99";
-        const tb = b.arrivedAt || b.resTime || "99:99";
-        return ta.localeCompare(tb);
-      });
-    return { time, tables: rowTables };
-  });
-
+        return (a.arrivedAt || a.resTime || "99").localeCompare(b.arrivedAt || b.resTime || "99");
+      }),
+  }));
   const hasAny = rowsData.some(r => r.tables.length > 0);
 
-  const chip = (label, color, bg, border, bold = false) => (
-    <span style={{
-      fontFamily: FONT, fontSize: 11, letterSpacing: 0.5,
-      padding: "4px 10px", borderRadius: 2,
-      color, background: bg, border: `1px solid ${border}`,
-      whiteSpace: "nowrap", fontWeight: bold ? 500 : 400,
-    }}>{label}</span>
-  );
-
   const TableCard = ({ t }) => {
-    const isOpen   = expanded === t.id;
-    const isSeated = t.active;
-    const hasRestr = (t.restrictions || []).some(r => r.note);
+    const isSeated   = t.active;
+    const allRestr   = (t.restrictions || []).filter(r => r.note);
+    const hasBottles = (t.bottleWines || []).length > 0;
+
     return (
       <div style={{
-        background: isSeated ? "#f8fcf9" : "#fbfcfe",
-        border: `1px solid ${isSeated ? "#9bd0aa" : "#dde8f5"}`,
-        borderRadius: isMobile ? 10 : 4,
+        background: "#fff",
+        border: `1px solid ${isSeated ? "#b8ddc8" : "#dde8f5"}`,
+        borderRadius: 6,
         overflow: "hidden",
-        boxShadow: isOpen ? "0 4px 16px rgba(0,0,0,0.07)" : "none",
-        transition: "box-shadow 0.15s",
+        boxShadow: isSeated ? "0 2px 8px rgba(74,154,106,0.10)" : "none",
       }}>
-        {/* colour bar */}
-        <div style={{ height: 3, background: isSeated ? "#7bc492" : "#a8c4e0" }} />
+        {/* Top colour bar */}
+        <div style={{ height: 3, background: isSeated ? "#6ab882" : "#a0bcd8" }} />
 
-        {/* header row */}
-        <div onClick={() => setExp(isOpen ? null : t.id)} style={{
-          padding: isMobile ? "14px 16px" : "12px 14px",
-          display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+        {/* Table header */}
+        <div style={{
+          padding: "12px 14px 10px",
+          borderBottom: "1px solid #f0f0f0",
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8,
         }}>
-          <span style={{ fontFamily: FONT, fontSize: isMobile ? 24 : 20, fontWeight: 300, color: "#1a1a1a", minWidth: 32, lineHeight: 1 }}>
-            {String(t.id).padStart(2, "0")}
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: FONT, fontSize: 22, fontWeight: 300, color: "#1a1a1a", letterSpacing: 1, lineHeight: 1 }}>
+              {String(t.id).padStart(2, "0")}
+            </span>
             {t.resName && (
-              <div style={{ fontFamily: FONT, fontSize: isMobile ? 13 : 12, fontWeight: 500, color: "#1a1a1a", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: "#1a1a1a", letterSpacing: 0.2 }}>
                 {t.resName}
-              </div>
+              </span>
             )}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              {t.arrivedAt
-                ? <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 600 }}>arr. {t.arrivedAt}</span>
-                : t.resTime
-                  ? <span style={{ fontFamily: FONT, fontSize: 11, color: "#888" }}>res. {t.resTime}</span>
-                  : null
-              }
-              {isSeated
-                ? <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f7a45", letterSpacing: 1, border: "1px solid #9bd0aa", borderRadius: 2, padding: "2px 5px", background: "#ecf8ef", fontWeight: 700 }}>SEATED</span>
-                : <span style={{ fontFamily: FONT, fontSize: 8, color: "#2f5f8a", letterSpacing: 1, border: "1px solid #c6d7ea", borderRadius: 2, padding: "2px 5px", background: "#eef5fb", fontWeight: 700 }}>RESERVED</span>
-              }
-            </div>
+            {t.arrivedAt
+              ? <span style={{ fontFamily: FONT, fontSize: 11, color: "#3a8a5a", fontWeight: 600 }}>arr. {t.arrivedAt}</span>
+              : t.resTime
+                ? <span style={{ fontFamily: FONT, fontSize: 11, color: "#888" }}>res. {t.resTime}</span>
+                : null
+            }
           </div>
-          <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0 }}>
-            {t.birthday  && <span style={{ fontSize: 13 }}>🎂</span>}
-            {hasRestr    && <span style={{ fontSize: 13 }}>⚠️</span>}
-            {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 8, color: "#1a1a1a", border: "1px solid #e8e8e8", borderRadius: 2, padding: "2px 5px" }}>{t.menuType}</span>}
-            {t.guestType === "hotel" && t.room && (
-              <span style={{ fontFamily: FONT, fontSize: 8, color: "#a07040", border: "1px solid #d4b888", borderRadius: 2, padding: "2px 5px", fontWeight: 500 }}>#{t.room}</span>
-            )}
-            <span style={{
-              fontFamily: FONT, fontSize: 16, color: "#bbb", lineHeight: 1, marginLeft: 2,
-              transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.18s", display: "inline-block",
-            }}>⌄</span>
+          <div style={{ display: "flex", gap: 5, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {isSeated
+              ? <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 1, padding: "3px 7px", borderRadius: 2, background: "#e8f7ee", border: "1px solid #9bd0aa", color: "#2f7a45", fontWeight: 700 }}>SEATED</span>
+              : <span style={{ fontFamily: FONT, fontSize: 8, letterSpacing: 1, padding: "3px 7px", borderRadius: 2, background: "#eef5fb", border: "1px solid #c6d7ea", color: "#2f5f8a", fontWeight: 700 }}>RESERVED</span>
+            }
+            {t.menuType && <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: "1px solid #e8e8e8", color: "#555" }}>{t.menuType}</span>}
+            {t.guestType === "hotel" && t.room && <span style={{ fontFamily: FONT, fontSize: 9, padding: "3px 7px", borderRadius: 2, border: "1px solid #d4b888", color: "#a07040", background: "#fffaf2", fontWeight: 600 }}>#{t.room}</span>}
+            {t.birthday && <span style={{ fontSize: 13 }}>🎂</span>}
           </div>
         </div>
 
-        {/* expanded detail */}
-        {isOpen && (
-          <div style={{ borderTop: "1px solid #f0f0f0", padding: "16px 16px 20px", background: "#fff" }}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-              {t.guestType === "hotel" && t.room && chip(`Hotel #${t.room}`, "#7a5020", "#f5ead8", "#c8a060", true)}
-              {t.menuType  && chip(`${t.menuType} menu`, "#333", "#f8f8f8", "#d8d8d8", true)}
-              {t.resTime   && chip(`res. ${t.resTime}`,   "#555", "#f0f0f0", "#d8d8d8")}
-              {t.arrivedAt && chip(`arr. ${t.arrivedAt}`, "#2a6a3a", "#e0f5ea", "#7acc8a", true)}
-              {chip(`${t.guests} guest${t.guests === 1 ? "" : "s"}`, "#333", "#f5f5f5", "#dedede", true)}
-              {t.birthday  && chip("🎂 birthday", "#7a5020", "#fdf0e0", "#d4b888", true)}
-            </div>
-            <TableSeatDetail table={t} dishes={dishes} isMobile={isMobile} />
+        {/* Notes + bottles row (if any) */}
+        {(t.notes || hasBottles) && (
+          <div style={{ padding: "8px 14px", borderBottom: "1px solid #f5f5f5", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", background: "#fafafa" }}>
+            {hasBottles && (t.bottleWines || []).map((w, i) => (
+              <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
+            ))}
+            {t.notes && <span style={{ fontFamily: FONT, fontSize: 11, color: "#777", fontStyle: "italic" }}>{t.notes}</span>}
           </div>
         )}
+
+        {/* Seats — always visible, one row per seat */}
+        {isSeated && t.seats && t.seats.length > 0 ? (
+          <div style={{ padding: "8px 0 6px" }}>
+            {t.seats.map(s => {
+              const ws      = waterStyle(s.water);
+              const pc      = pairingColors[s.pairing];
+              const restr   = allRestr.filter(r => r.pos === s.id);
+              const extras  = dishes.filter(d => s.extras?.[d.id]?.ordered);
+              const allBevs = [
+                ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
+                ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
+                ...(s.spirits   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.spirit })),
+                ...(s.beers     || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.beer })),
+              ];
+
+              return (
+                <div key={s.id} style={{
+                  display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
+                  padding: "5px 14px",
+                  borderBottom: "1px solid #f8f8f8",
+                  background: restr.length ? "#fffaf9" : "transparent",
+                }}>
+                  {/* Seat number */}
+                  <span style={{
+                    fontFamily: FONT, fontSize: 10, fontWeight: 700, minWidth: 22,
+                    color: restr.length ? "#b04040" : "#999", letterSpacing: 0.5,
+                  }}>P{s.id}</span>
+
+                  {/* Water */}
+                  {s.water && s.water !== "—" && (
+                    <span style={{
+                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
+                      background: ws.bg || "#f0f0f0", color: "#333", border: "1px solid #e0e0e0",
+                    }}>{s.water}</span>
+                  )}
+
+                  {/* Pairing */}
+                  {s.pairing && pc && (
+                    <span style={{
+                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
+                      background: pc.bg, border: `1px solid ${pc.border}`, color: pc.color, fontWeight: 500,
+                    }}>{s.pairing}</span>
+                  )}
+
+                  {/* Beverages */}
+                  {allBevs.map((b, i) => (
+                    <span key={i} style={{
+                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
+                      border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg,
+                    }}>{b.label}</span>
+                  ))}
+
+                  {/* Extra dishes */}
+                  {extras.map(d => (
+                    <span key={d.id} style={{
+                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
+                      border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8",
+                    }}>{d.name}</span>
+                  ))}
+
+                  {/* Restrictions */}
+                  {restr.map((r, i) => (
+                    <span key={i} style={{
+                      fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2,
+                      border: "1px solid #e09090", color: "#b04040", background: "#fef0f0", fontWeight: 500,
+                    }}>⚠ {r.note}</span>
+                  ))}
+
+                  {/* Empty seat — show placeholder */}
+                  {s.water === "—" && !s.pairing && allBevs.length === 0 && restr.length === 0 && extras.length === 0 && (
+                    <span style={{ fontFamily: FONT, fontSize: 10, color: "#ddd" }}>—</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : !isSeated ? (
+          /* Reserved but not yet seated — show guest count */
+          <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: FONT, fontSize: 11, color: "#aaa" }}>{t.guests} guest{t.guests !== 1 ? "s" : ""}</span>
+            {allRestr.length > 0 && allRestr.map((r, i) => (
+              <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 7px", borderRadius: 2, border: "1px solid #e09090", color: "#b04040", background: "#fef0f0", fontWeight: 500 }}>⚠ {r.note}</span>
+            ))}
+          </div>
+        ) : null}
       </div>
     );
   };
 
   return (
-    <div style={{ overflowY: "auto", overflowX: "hidden", padding: isMobile ? "16px 12px 40px" : "28px 28px 48px", background: "#fafafa", minHeight: "calc(100vh - 52px)" }}>
+    <div style={{
+      overflowY: "auto", overflowX: "hidden",
+      padding: isMobile ? "16px 12px 40px" : "24px 24px 48px",
+      background: "#fafafa", minHeight: "calc(100vh - 52px)",
+    }}>
       {!hasAny && (
         <div style={{ fontFamily: FONT, fontSize: 10, color: "#aaa", textAlign: "center", marginTop: 80, letterSpacing: 2 }}>
           no reservations
@@ -1604,23 +1673,20 @@ function DisplayBoard({ tables, dishes }) {
       )}
       {rowsData.map(({ time, tables: rowTables }) => {
         if (rowTables.length === 0) return null;
+        const seatedCount = rowTables.filter(t => t.active).length;
         return (
-          <div key={time} style={{ marginBottom: 36 }}>
+          <div key={time} style={{ marginBottom: 32 }}>
             {/* Row label */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-              <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#888", textTransform: "uppercase" }}>
-                {time}
-              </span>
-              <div style={{ flex: 1, height: 1, background: "#e8e8e8" }} />
-              <span style={{ fontFamily: FONT, fontSize: 10, color: "#bbb" }}>
-                {rowTables.filter(t => t.active).length}/{rowTables.length} seated
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <span style={{ fontFamily: FONT, fontSize: 11, letterSpacing: 3, color: "#666", textTransform: "uppercase" }}>{time}</span>
+              <div style={{ flex: 1, height: 1, background: "#e0e0e0" }} />
+              <span style={{ fontFamily: FONT, fontSize: 10, color: "#aaa" }}>{seatedCount}/{rowTables.length} seated</span>
             </div>
-            {/* Cards */}
+            {/* Cards — 2 columns on desktop, 1 on mobile */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(260px, 1fr))",
-              gap: isMobile ? 10 : 12,
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))",
+              gap: isMobile ? 10 : 14,
             }}>
               {rowTables.map(t => <TableCard key={t.id} t={t} />)}
             </div>
@@ -1724,7 +1790,6 @@ function SummaryModal({ tables, dishes = [], onClose }) {
     active.forEach(t => {
       lines.push(`TABLE ${String(t.id).padStart(2,"0")}${t.resName ? " · " + t.resName : ""}${t.arrivedAt ? " [arr. " + t.arrivedAt + "]" : ""}`);
       if (t.menuType) lines.push(`  Menu: ${t.menuType}`);
-      if (t.bottleWines?.length) lines.push(`  Bottles: ${t.bottleWines.map(w => w.name).join(", ")}`);
       t.seats.forEach(s => {
         const parts = [`P${s.id}`];
         if (s.water && s.water !== "—") parts.push(`water:${s.water}`);
@@ -1764,9 +1829,6 @@ function SummaryModal({ tables, dishes = [], onClose }) {
               {t.arrivedAt && <span style={{ fontFamily: FONT, fontSize: 11, color: "#4a9a6a", fontWeight: 500 }}>arr. {t.arrivedAt}</span>}
               {t.menuType  && <span style={{ fontFamily: FONT, fontSize: 9, letterSpacing: 1, padding: "3px 8px", border: "1px solid #e0e0e0", borderRadius: 2, color: "#555", background: "#fff" }}>{t.menuType}</span>}
               {t.birthday  && <span style={{ fontSize: 14 }}>🎂</span>}
-              {(t.bottleWines || []).map((w, i) => (
-                <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "2px 8px", borderRadius: 2, border: "1px solid #c8a060", color: "#7a5020", background: "#fdf4e8" }}>🍾 {w.name}</span>
-              ))}
               {t.notes     && <span style={{ fontFamily: FONT, fontSize: 10, color: "#999", fontStyle: "italic", marginLeft: "auto" }}>{t.notes}</span>}
             </div>
             <div style={{ padding: "8px 12px 12px" }}>
@@ -1798,7 +1860,6 @@ function SummaryModal({ tables, dishes = [], onClose }) {
     </FullModal>
   );
 }
-
 
 // ── Archive Modal ─────────────────────────────────────────────────────────────
 function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }) {
@@ -1854,15 +1915,9 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
   return (
     <FullModal title="Archive · End of Day" onClose={onClose} actions={archiveActions}>
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
-        {!supabase && (
-          <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>
-            Supabase not connected — archive unavailable offline
-          </div>
-        )}
+        {!supabase && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>Supabase not connected</div>}
         {supabase && loading && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>Loading…</div>}
-        {supabase && !loading && entries.length === 0 && (
-          <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>No archived services yet</div>
-        )}
+        {supabase && !loading && entries.length === 0 && <div style={{ fontFamily: FONT, fontSize: 11, color: "#bbb", padding: "60px 0", textAlign: "center" }}>No archived services yet</div>}
         {supabase && !loading && entries.length > 0 && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
             <button onClick={deleteAll} disabled={deleting === "all"} style={{
@@ -1873,9 +1928,9 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
           </div>
         )}
         {entries.map(entry => {
-          const isExp        = expanded === entry.id;
-          const entryTables  = entry.state?.tables || [];
-          const totalGuests  = entryTables.reduce((a, t) => a + (t.guests || 0), 0);
+          const isExp       = expanded === entry.id;
+          const entryTables = entry.state?.tables || [];
+          const totalGuests = entryTables.reduce((a, t) => a + (t.guests || 0), 0);
           return (
             <div key={entry.id} style={{ border: "1px solid #f0f0f0", borderRadius: 4, marginBottom: 8, overflow: "hidden" }}>
               <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: isExp ? "#fafafa" : "#fff" }}>
@@ -1907,22 +1962,22 @@ function ArchiveModal({ tables, dishes, onArchiveAndClear, onClearAll, onClose }
                         ))}
                       </div>
                       {(t.seats || []).map(s => {
-                        const ws      = waterStyle(s.water);
-                        const restr   = (t.restrictions || []).filter(r => r.pos === s.id);
-                        const extras  = (entry.state?.dishes || dishes).filter(d => s.extras?.[d.id]?.ordered);
-                        const allBevs = [
+                        const ws    = waterStyle(s.water);
+                        const restr = (t.restrictions || []).filter(r => r.pos === s.id);
+                        const extra = (entry.state?.dishes || dishes).filter(d => s.extras?.[d.id]?.ordered);
+                        const bevs  = [
                           ...(s.glasses   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.wine })),
                           ...(s.cocktails || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.cocktail })),
                           ...(s.spirits   || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.spirit })),
                           ...(s.beers     || []).filter(Boolean).map(x => ({ label: x.name, ts: BEV_TYPES.beer })),
                         ];
                         return (
-                          <div key={s.id} style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", padding: "6px 4px", borderBottom: "1px solid #fafafa" }}>
+                          <div key={s.id} style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", padding: "5px 4px", borderBottom: "1px solid #fafafa" }}>
                             <span style={{ fontFamily: FONT, fontSize: 10, fontWeight: 600, color: "#999", minWidth: 26 }}>P{s.id}</span>
                             {s.water !== "—" && <span style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, background: ws.bg || "#f0f0f0", color: "#444", border: "1px solid #e0e0e0" }}>{s.water}</span>}
                             {s.pairing && <span style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, color: pairingColor[s.pairing] || "#555", background: pairingBg[s.pairing] || "#fafafa", border: "1px solid #e0e0e0" }}>{s.pairing}</span>}
-                            {allBevs.map((b, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg }}>{b.label}</span>)}
-                            {extras.map(d => <span key={d.id} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8" }}>{d.name}</span>)}
+                            {bevs.map((b, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: `1px solid ${b.ts.border}`, color: b.ts.color, background: b.ts.bg }}>{b.label}</span>)}
+                            {extra.map(d => <span key={d.id} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: "1px solid #88cc88", color: "#2a6a2a", background: "#e8f5e8" }}>{d.name}</span>)}
                             {restr.map((r, i) => <span key={i} style={{ fontFamily: FONT, fontSize: 10, padding: "1px 7px", borderRadius: 2, border: "1px solid #e09090", color: "#b04040", background: "#fef0f0" }}>⚠ {r.note}</span>)}
                           </div>
                         );
