@@ -1,45 +1,79 @@
 // api/sync-menu.js — Vercel serverless function
-// Fetches FOOD N PAIRINGS sheet from Google Sheets CSV, parses it, upserts into menu_courses
+// Fetches MILKA MENU V2 sheet from Google Sheets CSV and upserts into menu_courses.
 
 const { createClient } = require("@supabase/supabase-js");
 
-const SHEET_ID  = "1AsEtIuuUZKA_i84VYvEYKdbKA2e9wr4q1P2rVN84xdQ";
-const SHEET_TAB = "FOOD N PAIRINGS JAN26";
+const SHEET_ID  = process.env.VITE_MENU_SHEET_ID || process.env.MENU_SHEET_ID || "1aPVGmKNcvDOFzyr3jSPT_KL5lKEYKPgkad3y0_E_Vl4";
+const SHEET_TAB = process.env.VITE_MENU_SHEET_TAB || process.env.MENU_SHEET_TAB || "MILKA MENU V2";
 const CSV_URL   = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
 
 const SECRET = process.env.SYNC_SECRET || "milka2025";
 
-// ── Simple CSV parser (handles quoted fields with commas/newlines) ──────────
 function parseCSV(text) {
   const rows = [];
   let row = [], field = "", inQuote = false;
-
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (inQuote) {
-      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i += 1; }
       else if (ch === '"') inQuote = false;
       else field += ch;
     } else {
-      if (ch === '"') { inQuote = true; }
+      if (ch === '"') inQuote = true;
       else if (ch === ',') { row.push(field); field = ""; }
       else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ""; }
-      else if (ch === '\r') { /* skip */ }
-      else field += ch;
+      else if (ch !== '\r') field += ch;
     }
   }
   if (field || row.length) { row.push(field); rows.push(row); }
   return rows;
 }
 
-// ── Parse "DISH NAME\nsub description" into {name, sub} ───────────────────
-function parseCell(val) {
-  if (!val || !val.trim()) return null;
-  const parts = val.trim().split("\n");
-  const name  = parts[0].trim();
-  const sub   = parts.slice(1).join(" ").trim().replace(/\s+/g, " ");
-  if (!name) return null;
-  return { name, sub };
+const normHeader = value => String(value || "")
+  .trim()
+  .toLowerCase()
+  .replace(/\s+/g, "_")
+  .replace(/[^a-z0-9_/?#]+/g, "_")
+  .replace(/^_+|_+$/g, "");
+
+const firstFilled = (...vals) => vals.find(v => String(v ?? "").trim()) ?? "";
+const truthyCell = value => ["true", "yes", "y", "1", "wahr"].includes(String(value ?? "").trim().toLowerCase());
+
+const splitMainSubCell = (title, sub = "") => {
+  const rawTitle = String(title ?? "").trim();
+  const rawSub = String(sub ?? "").trim();
+  if (!rawTitle && !rawSub) return null;
+  if (rawTitle.includes("|")) {
+    const [left, ...rest] = rawTitle.split("|");
+    return { name: left.trim(), sub: rest.join("|").trim() || rawSub || "" };
+  }
+  return { name: rawTitle, sub: rawSub };
+};
+
+function parseRows(rows) {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(normHeader);
+  const records = rows.slice(1).map(cols => {
+    const obj = {};
+    headers.forEach((header, idx) => { obj[header] = cols[idx] ?? ""; });
+    return obj;
+  });
+
+  return records.map((row) => {
+    const menu = splitMainSubCell(row.dish, row.description);
+    if (!menu?.name) return null;
+    return {
+      position: Number(firstFilled(row["#"], row.position, row.order_index)) || 0,
+      menu,
+      veg: splitMainSubCell(row.veg, row.veg_sub),
+      hazards: null,
+      na: splitMainSubCell(row.na_drink, row.na_sub),
+      wp: splitMainSubCell(row.wp_drink, row.wp_sub),
+      os: splitMainSubCell(row.os_drink, row.os_sub),
+      premium: splitMainSubCell(row.premium, row.premium_sub),
+      is_snack: truthyCell(firstFilled(row["snack?"], row.snack)),
+    };
+  }).filter(Boolean).sort((a, b) => a.position - b.position);
 }
 
 module.exports = async (req, res) => {
@@ -48,49 +82,17 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  // Auth check
   const secret = req.query.secret || req.headers["x-sync-secret"];
   if (secret !== SECRET) return res.status(401).json({ error: "Unauthorized" });
 
   try {
-    // 1. Fetch CSV from Google Sheets
     const response = await fetch(CSV_URL);
     if (!response.ok) throw new Error(`Google Sheets fetch failed: ${response.status}`);
     const csvText = await response.text();
 
-    // 2. Parse CSV
-    const rows = parseCSV(csvText);
-    if (rows.length < 2) throw new Error("Sheet appears empty");
-
-    // Expected columns (0-indexed):
-    // 0: MENU, 1: MENU SLO, 2: VEGETARIAN, 3: HAZARDS,
-    // 4: NA, 5: NA SLO, 6: WP, 7: OS, 8: OS SLO, 9: Premium Pairing, 10: APERITIVO
-
-    const dataRows = rows.slice(1); // skip header row
-    const courses  = [];
-
-    dataRows.forEach((cols, idx) => {
-      const menuRaw = cols[0];
-      if (!menuRaw || !menuRaw.trim()) return; // skip empty rows
-
-      const menu    = parseCell(menuRaw);
-      if (!menu) return;
-
-      const veg     = parseCell(cols[2]);
-      const hazards = (cols[3] || "").trim() || null;
-      const na      = parseCell(cols[4]);
-      const wp      = parseCell(cols[6]);
-      const os      = parseCell(cols[7]);
-      const premium = parseCell(cols[9]);
-      const position = idx + 1; // 1-based
-      const is_snack = position <= 5; // SOUR SOUP → CRAYFISH are snacks
-
-      courses.push({ position, menu, veg, hazards, na, wp, os, premium, is_snack });
-    });
-
+    const courses = parseRows(parseCSV(csvText));
     if (courses.length === 0) throw new Error("No courses parsed from sheet");
 
-    // 3. Upsert into Supabase
     const supabase = createClient(
       process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
@@ -102,19 +104,13 @@ module.exports = async (req, res) => {
 
     if (error) throw new Error("Supabase upsert failed: " + error.message);
 
-    // 4. Delete any positions that no longer exist in the sheet
     const positions = courses.map(c => c.position);
     await supabase
       .from("menu_courses")
       .delete()
       .not("position", "in", `(${positions.join(",")})`);
 
-    return res.status(200).json({
-      ok: true,
-      synced: courses.length,
-      courses: courses.map(c => c.menu.name),
-    });
-
+    return res.status(200).json({ ok: true, synced: courses.length });
   } catch (err) {
     console.error("sync-menu error:", err);
     return res.status(500).json({ error: err.message });
