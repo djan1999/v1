@@ -1,36 +1,43 @@
-create table if not exists public.board_state (
-  id text primary key,
-  state jsonb not null,
+create table if not exists public.service_tables (
+  table_id integer primary key check (table_id between 1 and 10),
+  data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
-alter table public.board_state enable row level security;
+alter table public.service_tables enable row level security;
 
-drop policy if exists "board_state_read" on public.board_state;
-create policy "board_state_read"
-on public.board_state
+drop policy if exists "service_tables_read" on public.service_tables;
+create policy "service_tables_read"
+on public.service_tables
 for select
 to anon, authenticated
 using (true);
 
-drop policy if exists "board_state_write" on public.board_state;
-create policy "board_state_write"
-on public.board_state
+drop policy if exists "service_tables_write" on public.service_tables;
+create policy "service_tables_write"
+on public.service_tables
 for insert
 to anon, authenticated
 with check (true);
 
-drop policy if exists "board_state_update" on public.board_state;
-create policy "board_state_update"
-on public.board_state
+drop policy if exists "service_tables_update" on public.service_tables;
+create policy "service_tables_update"
+on public.service_tables
 for update
 to anon, authenticated
 using (true)
 with check (true);
 
-insert into public.board_state (id, state)
-values ('main', '{}'::jsonb)
-on conflict (id) do nothing;
+drop policy if exists "service_tables_delete" on public.service_tables;
+create policy "service_tables_delete"
+on public.service_tables
+for delete
+to anon, authenticated
+using (true);
 
--- Realtime
-alter publication supabase_realtime add table public.board_state;
+insert into public.service_tables (table_id, data)
+select gs, '{}'::jsonb
+from generate_series(1, 10) as gs
+on conflict (table_id) do nothing;
+
+alter publication supabase_realtime add table public.service_tables;
